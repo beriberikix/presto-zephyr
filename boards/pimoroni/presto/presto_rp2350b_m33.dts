@@ -1,0 +1,9 @@
+/*
+ * SPDX-License-Identifier: MIT
+ */
+
+/dts-v1/;
+
+#include <raspberrypi/rpi_pico/rp2350b.dtsi>
+#include <raspberrypi/rpi_pico/m33.dtsi>
+#include "presto.dtsi"

@@ -1,0 +1,20 @@
+identifier: presto/rp2350b/m33
+name: Pimoroni Presto (Cortex-M33)
+type: mcu
+arch: arm
+flash: 16384
+ram: 520
+toolchain:
+  - zephyr
+  - gnuarmemb
+supported:
+  - counter
+  - dma
+  - gpio
+  - i2c
+  - input
+  - led_strip
+  - pwm
+  - usbd
+  - watchdog
+  - wifi

@@ -1,0 +1,48 @@
+# Python virtual environments
+.venv/
+venv/
+
+# CMake / Ninja build output
+build/
+**/build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+.ninja_*
+
+# Compiled artifacts
+*.elf
+*.bin
+*.hex
+*.uf2
+*.map
+*.lst
+*.o
+*.obj
+*.a
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# West workspace artifacts — these are fetched by `west update`, not committed.
+.west/
+zephyr/
+modules/
+bootloader/
+tools/
+west/
+
+# Local config overrides
+.env
+*.local

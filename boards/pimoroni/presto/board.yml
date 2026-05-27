@@ -1,0 +1,6 @@
+board:
+  name: presto
+  full_name: Pimoroni Presto
+  vendor: pimoroni
+  socs:
+    - name: rp2350b

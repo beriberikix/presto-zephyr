@@ -1,0 +1,231 @@
+/*
+ * SPDX-License-Identifier: MIT
+ *
+ * Pimoroni Presto (RP2350B, 480x480 IPS w/ cap-touch, RM2 Wi-Fi/BT,
+ * 7x SK6812, 8MB PSRAM, microSD, piezo).
+ *
+ * Pin map (RP2350B GPIO numbers; gpio0 covers 0-31, gpio0_hi covers 32-47):
+ *
+ *   Display (DISABLED — no upstream Zephyr driver for ST7701 in parallel RGB):
+ *     GP1..GP18  18bpp parallel RGB data lanes
+ *     GP19       HSYNC
+ *     GP20       VSYNC
+ *     GP21       DE
+ *     GP22       PCLK / DOTCLK
+ *     GP26       LCD SPI CLK (9-bit cmd bus)
+ *     GP27       LCD SPI DATA
+ *     GP28       LCD SPI CS
+ *     GP44       LCD_RESET
+ *
+ *   Backlight:
+ *     GP45       BACKLIGHT_EN (drives AP3031 booster CTRL)
+ *
+ *   Wi-Fi / BT (CYW43439 via RM2, PIO-SPI):
+ *     GP23 REG_ON, GP24 DATA, GP25 CS, GP29 CLK
+ *
+ *   Touch (FT6236, I2C):
+ *     GP30 SDA, GP31 SCL, GP32 INT, GP42 RESET, addr 0x48
+ *
+ *   LEDs (7x SK6812 NeoPixels, PIO0 SM3):
+ *     GP33 LED_DATA
+ *
+ *   microSD (4-bit SDIO capable; SPI mode pin layout):
+ *     GP34 SCLK, GP35 CMD/MOSI, GP36 DAT0/MISO,
+ *     GP37 DAT1, GP38 DAT2, GP39 DAT3/CS
+ *
+ *   Qw/ST I2C (external breakout):
+ *     GP40 SDA, GP41 SCL
+ *
+ *   Piezo audio:
+ *     GP43 PWM
+ *
+ *   User input:
+ *     GP46 USER_SW (shared with QSPI BOOTSEL, pull-up active-low)
+ *
+ *   PSRAM (8MB APS6404, out of scope this iteration):
+ *     GP47 dedicated CS
+ */
+
+#include <freq.h>
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
+#include <zephyr/dt-bindings/i2c/i2c.h>
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+#include <zephyr/dt-bindings/led/led.h>
+
+#include "presto-pinctrl.dtsi"
+
+/ {
+	chosen {
+		zephyr,sram = &sram0;
+		zephyr,flash = &flash0;
+		zephyr,flash-controller = &qmi;
+		zephyr,console = &uart0;
+		zephyr,shell-uart = &uart0;
+	};
+
+	aliases {
+		watchdog0 = &wdt0;
+		sw0 = &user_sw;
+		led-strip = &ws2812;
+	};
+
+	buttons {
+		compatible = "gpio-keys";
+
+		user_sw: user_sw {
+			label = "User / BOOTSEL";
+			gpios = <&gpio0_hi 14 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+			zephyr,code = <INPUT_KEY_0>;
+		};
+	};
+};
+
+&flash0 {
+	reg = <0x10000000 DT_SIZE_M(16)>;
+};
+
+&uart0 {
+	current-speed = <115200>;
+	pinctrl-0 = <&uart0_default>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
+&gpio0 {
+	status = "okay";
+};
+
+&gpio0_hi {
+	status = "okay";
+};
+
+/* Qw/ST connector. */
+&i2c0 {
+	clock-frequency = <I2C_BITRATE_FAST>;
+	pinctrl-0 = <&i2c0_default>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
+/* On-board FT6236 capacitive touch. */
+&i2c1 {
+	clock-frequency = <I2C_BITRATE_FAST>;
+	pinctrl-0 = <&i2c1_default>;
+	pinctrl-names = "default";
+	status = "okay";
+
+	ft6236: ft6236@48 {
+		compatible = "focaltech,ft6146";
+		reg = <0x48>;
+		int-gpios = <&gpio0_hi 0 GPIO_ACTIVE_LOW>;
+		reset-gpios = <&gpio0_hi 10 GPIO_ACTIVE_LOW>;
+		status = "okay";
+	};
+};
+
+&dma {
+	status = "okay";
+};
+
+&timer0 {
+	status = "okay";
+};
+
+&wdt0 {
+	status = "okay";
+};
+
+&rng {
+	status = "okay";
+};
+
+zephyr_udc0: &usbd {
+	status = "okay";
+};
+
+&pio0 {
+	status = "okay";
+
+	/*
+	 * CYW43439 PIO-SPI bus. SM0..2 are consumed by the airoc driver;
+	 * SM3 remains free for the WS2812 chain below.
+	 */
+	pio0_spi0: pio0_spi0 {
+		compatible = "raspberrypi,pico-spi-pio";
+		clocks = <&clocks RPI_PICO_CLKID_CLK_SYS>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		cs-gpios = <&gpio0 25 GPIO_ACTIVE_LOW>;
+		clk-gpios = <&gpio0 29 GPIO_ACTIVE_HIGH>;
+		sio-gpios = <&gpio0 24 GPIO_ACTIVE_HIGH>;
+		pinctrl-0 = <&pio0_spi0_default>;
+		pinctrl-names = "default";
+		status = "okay";
+
+		airoc_wifi: airoc-wifi@0 {
+			compatible = "infineon,airoc-wifi";
+			reg = <0>;
+			wifi-reg-on-gpios = <&gpio0 23 GPIO_ACTIVE_HIGH>;
+			bus-select-gpios = <&gpio0 24 GPIO_ACTIVE_HIGH>;
+			wifi-host-wake-gpios = <&gpio0 24 GPIO_ACTIVE_HIGH>;
+			spi-max-frequency = <10000000>;
+			spi-half-duplex;
+			spi-data-irq-shared;
+			pinctrl-0 = <&airoc_wifi_default>;
+			pinctrl-1 = <&airoc_wifi_host_wake>;
+			pinctrl-names = "default", "host_wake";
+			status = "disabled";
+
+			cyw43_gpio: gpio {
+				compatible = "infineon,cyw43-gpio";
+				gpio-controller;
+				#gpio-cells = <2>;
+				ngpios = <3>;
+			};
+		};
+	};
+
+	/* 7x SK6812 ambient lighting chain, GRB order, GP33. */
+	ws2812_pio: ws2812_pio {
+		compatible = "worldsemi,ws2812-rpi_pico-pio";
+		status = "okay";
+		pinctrl-0 = <&ws2812_pio0_default>;
+		pinctrl-names = "default";
+		bit-waveform = <3>, <3>, <4>;
+
+		ws2812: ws2812 {
+			status = "okay";
+			gpios = <&gpio0_hi 1 GPIO_ACTIVE_HIGH>;
+			chain-length = <7>;
+			color-mapping = <LED_COLOR_ID_GREEN
+					 LED_COLOR_ID_RED
+					 LED_COLOR_ID_BLUE>;
+			reset-delay = <280>;
+			frequency = <800000>;
+		};
+	};
+};
+
+&pio1 {
+	status = "okay";
+
+	/*
+	 * Display stub. Pins are reserved here for future work.
+	 * The Pimoroni firmware drives the ST7701 in 18bpp parallel RGB
+	 * with three custom PIO programs (st7701_parallel, st7701_timing,
+	 * st7701_palette) plus a ping-pong DMA chain. Upstream Zephyr has
+	 * no driver for this — the panel node stays disabled.
+	 *
+	 * TODO: write a Zephyr display driver for ST7701 parallel RGB.
+	 *       See pimoroni/presto:drivers/st7701/*.pio for the vendor
+	 *       reference.
+	 */
+};
+
+/*
+ * PSRAM (8MB APS6404 on dedicated CS = GP47) — out of scope this iteration.
+ * RP2350B has a dedicated PSRAM CS option; mapping it into XIP space
+ * requires QMI window 1 register init that Zephyr does not currently
+ * expose. Pin remains unclaimed so a future patch can drive it.
+ */
