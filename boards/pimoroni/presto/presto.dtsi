@@ -221,14 +221,18 @@ zephyr_udc0: &usbd {
 	/*
 	 * ST7701 480x480 panel, driven in 18bpp parallel-RGB (DPI) mode by the
 	 * CONFIG_ST7701_PRESTO driver (out-of-tree module drivers/presto), a
-	 * port of the Pimoroni firmware's PIO+DMA scanout. Disabled by default
-	 * because the data lanes share GP0/GP1 with the UART0 console: an app
-	 * that enables this must also move its console off UART0 (e.g. to USB
-	 * CDC-ACM). See apps/test_display for the overlay that does this.
+	 * port of the Pimoroni firmware's PIO+DMA scanout. Disabled by default;
+	 * apps/test_display enables it.
 	 *
-	 * Pin functions for the parallel bus (GP1-GP18 data, GP19-GP22 sync)
-	 * are configured at runtime by the driver via pio_gpio_init(), so no
-	 * pinctrl group is needed.
+	 * Console note: the first data lane GP1 doubles as UART0 RX, so enabling
+	 * the panel takes over GP1 at runtime. The UART0 console keeps working on
+	 * TX (GP0), which the display does not use, so no console change is
+	 * needed (only UART0 receive is lost).
+	 *
+	 * Pin functions for the 16 RGB565 data lanes (GP1-GP16) and the sync
+	 * pins (GP19-GP22) are configured at runtime by the driver via
+	 * pio_gpio_init(); GP17/GP18 are held low as plain GPIOs. No pinctrl
+	 * group is needed.
 	 */
 	st7701: st7701 {
 		compatible = "pimoroni,st7701-presto";

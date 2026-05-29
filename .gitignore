@@ -36,12 +36,14 @@ __pycache__/
 Thumbs.db
 
 # West workspace artifacts — these are fetched by `west update`, not committed.
-.west/
-zephyr/
-modules/
-bootloader/
-tools/
-west/
+# Root-anchored so they don't also match nested dirs like
+# drivers/presto/zephyr/ (a Zephyr module manifest, which IS committed).
+/.west/
+/zephyr/
+/modules/
+/bootloader/
+/tools/
+/west/
 
 # Local config overrides
 .env
