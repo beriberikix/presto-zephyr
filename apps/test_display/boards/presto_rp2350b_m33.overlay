@@ -1,0 +1,16 @@
+/*
+ * Enable the ST7701 panel and select it as the system display. Its 16-lane
+ * RGB565 data bus uses GP1-GP16 and the driver configures those (plus GP19-22
+ * sync) at runtime via pio_gpio_init(). GP1 also serves as UART0 RX; the
+ * console keeps working on UART0 TX (GP0), which the display does not use.
+ */
+
+/ {
+	chosen {
+		zephyr,display = &st7701;
+	};
+};
+
+&st7701 {
+	status = "okay";
+};

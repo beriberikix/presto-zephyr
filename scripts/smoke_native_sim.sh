@@ -35,6 +35,7 @@ apps=(
   test_buttons
   test_touch
   test_wifi
+  test_display
   kitchen_sink
 )
 
@@ -81,7 +82,9 @@ for app in "${apps[@]}"; do
   cmake --build "${build_dir}" -j"$(nproc)"
 
   echo "=== [${app}] run (${SMOKE_TIMEOUT_SECONDS}s) ==="
-  SDL_VIDEODRIVER=dummy timeout "${SMOKE_TIMEOUT_SECONDS}s" \
+  # "offscreen" lets the SDL display driver (test_display) initialise without
+  # a real window; harmless for the non-graphical apps.
+  SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-offscreen}" timeout "${SMOKE_TIMEOUT_SECONDS}s" \
     "${build_dir}/zephyr/zephyr.exe" || true
   echo
 done
