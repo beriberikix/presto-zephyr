@@ -1,0 +1,6 @@
+name: presto
+build:
+  cmake: .
+  kconfig: Kconfig
+  settings:
+    dts_root: .

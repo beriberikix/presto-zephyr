@@ -1,0 +1,34 @@
+# ST7701 parallel-RGB (DPI) PIO display driver for the Pimoroni Presto
+#
+# Copyright (c) 2026 Jonathan Beri
+# SPDX-License-Identifier: MIT
+
+config ST7701_PRESTO
+	bool "Pimoroni Presto ST7701 parallel-RGB (DPI) PIO display"
+	default y
+	depends on DT_HAS_PIMORONI_ST7701_PRESTO_ENABLED
+	select DISPLAY
+	select GPIO
+	select PICOSDK_USE_PIO
+	select PICOSDK_USE_DMA
+	select PICOSDK_USE_GPIO
+	help
+	  Driver for the ST7701S panel on the Pimoroni Presto, driven in 18bpp
+	  parallel-RGB (DPI) mode over a 16-lane RGB565 bus using two RP2350 PIO1
+	  state machines (pixel data + sync timing) plus a pair of DMA channels.
+	  The framebuffer (480x480 RGB565, ~450 KB) lives in SRAM and is scanned
+	  out continuously; display_write() blits into it.
+
+	  Ported from the MIT-licensed Pimoroni firmware
+	  (github.com/pimoroni/presto, drivers/st7701).
+
+if ST7701_PRESTO
+
+config ST7701_PRESTO_INIT_PRIORITY
+	int "ST7701 Presto init priority"
+	default 85
+	help
+	  Device init priority (POST_KERNEL). Must be after the PIO, DMA and
+	  GPIO drivers.
+
+endif # ST7701_PRESTO

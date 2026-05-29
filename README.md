@@ -2,7 +2,7 @@
 
 Out-of-tree [Zephyr RTOS](https://zephyrproject.org/) board support and example apps for the [Pimoroni Presto](https://shop.pimoroni.com/products/presto): a 4-inch 480×480 touchscreen with RP2350B, 8 MB PSRAM, RM2/CYW43439 Wi-Fi/BT, 7× SK6812 RGB LEDs, microSD, and piezo speaker.
 
-> **Display status: not yet supported.** The Presto's ST7701 panel runs in 18bpp parallel-RGB mode driven by three custom PIO programs in the vendor firmware. Upstream Zephyr has no driver for this. The display pins are reserved in the devicetree but the panel node is disabled with a TODO. Everything else — NeoPixels, capacitive touch, Wi-Fi, microSD, piezo, user button — is brought up with stock Zephyr drivers.
+> **Display status: implemented (build-verified; hardware bring-up pending).** The Presto's ST7701 panel runs in 18bpp parallel-RGB (DPI) mode. Upstream Zephyr has no driver for this, so this repo ships an out-of-tree one (`drivers/presto/`) ported from the MIT-licensed Pimoroni firmware: two RP2350 PIO1 state machines (pixel data + sync timing) plus a DMA pair stream a 480×480 RGB565 framebuffer out of SRAM. It compiles clean for the board and the drawing layer runs on `native_sim` via Zephyr's SDL display, but it has **not yet been validated on real hardware** (no debugger). Everything else — NeoPixels, capacitive touch, Wi-Fi, microSD, piezo, user button — is brought up with stock Zephyr drivers.
 
 Modelled on [`beriberikix/tufty2350-zephyr`](https://github.com/beriberikix/tufty2350-zephyr): same layout, same Zephyr revision pin (v4.4.0), same UF2-drop flash workflow.
 
@@ -17,7 +17,7 @@ Modelled on [`beriberikix/tufty2350-zephyr`](https://github.com/beriberikix/tuft
 | CYW43439 Wi-Fi (RM2) | ✅ builds, fetches blob | `infineon,airoc-wifi` over PIO-SPI; opt-in via overlay |
 | Qw/ST I2C0 (GP40/41) | ✅ working | Use for external breakouts |
 | Piezo (GP43 PWM) | ⚠️ DTS reserved | Driver not wired into an app yet |
-| Display ST7701 | ❌ TODO | No upstream Zephyr driver; pins reserved |
+| Display ST7701 | ⚠️ implemented, unverified on HW | Out-of-tree `drivers/presto` (PIO+DMA DPI scanout); builds + runs on `native_sim` SDL; needs a panel to confirm timing/colour |
 | 8 MB PSRAM (GP47 CS) | ❌ TODO | QMI window 1 init not exposed by Zephyr |
 | microSD (GP34-39) | ❌ TODO | Wired for 4-bit SDIO; SPI mode not yet enabled |
 
@@ -35,11 +35,16 @@ Modelled on [`beriberikix/tufty2350-zephyr`](https://github.com/beriberikix/tuft
 │   ├── presto_rp2350b_m33.dts       # Top-level board DTS
 │   ├── presto_rp2350b_m33.yaml      # Twister metadata
 │   └── presto_rp2350b_m33_defconfig
+├── drivers/presto/                  # Out-of-tree Zephyr module
+│   ├── zephyr/module.yml            # Registers the module (cmake + kconfig + dts_root)
+│   ├── dts/bindings/display/        # pimoroni,st7701-presto.yaml
+│   └── drivers/display/             # ST7701 DPI driver + ported PIO programs (.pio.h)
 ├── apps/
 │   ├── test_leds/                   # 7× SK6812 colour cycle via PIO
 │   ├── test_buttons/                # USER_SW edge logger
 │   ├── test_touch/                  # FT6236 events via INPUT subsystem
 │   ├── test_wifi/                   # CYW43439 default-iface bring-up
+│   ├── test_display/                # ST7701 colour bars + animated square (SDL on native_sim)
 │   └── kitchen_sink/                # 4-screen cycler (auto + USER_SW)
 ├── scripts/
 │   └── smoke_native_sim.sh          # Builds all apps for native_sim, runs 3 s each
@@ -56,7 +61,7 @@ Modelled on [`beriberikix/tufty2350-zephyr`](https://github.com/beriberikix/tuft
 | MCU | RP2350B (dual Cortex-M33 @ 150 MHz, 520 KB SRAM) |
 | Flash | 16 MB QSPI (W25Q128) |
 | PSRAM | 8 MB APS6404 on dedicated CS (GP47) — *not currently initialised* |
-| Display | 4″ 480×480 IPS, ST7701, 18bpp parallel RGB + 9-bit SPI cmd bus — *disabled in this port* |
+| Display | 4″ 480×480 IPS, ST7701, 18bpp parallel RGB + 9-bit SPI cmd bus — driven by `drivers/presto` (PIO+DMA DPI scanout) |
 | Touch | FT6236 capacitive, I2C1, addr 0x48 |
 | LEDs | 7× SK6812 NeoPixels, GP33 (PIO0 SM3) |
 | Wireless | RM2 module (CYW43439) — Wi-Fi b/g/n + BT, PIO-SPI |
@@ -161,6 +166,7 @@ Alternative runners are wired up in [`boards/pimoroni/presto/board.cmake`](board
 | `test_buttons` | Polls USER_SW every 20 ms, logs press/release edges | GPIO, BOOTSEL-shared button |
 | `test_touch` | Subscribes to INPUT events from the FT6236, logs (x, y, pressed) | I2C1, INPUT subsystem |
 | `test_wifi` | Acquires the default network interface; placeholder for scan | CYW43439 over PIO-SPI |
+| `test_display` | Draws RGB565 colour bars + an animated square via the display API | ST7701 (board) / SDL (`native_sim`) |
 | `kitchen_sink` | Cycles through neopixel / button / touch / wifi "screens" every 5 s (or on USER_SW press) | All of the above |
 
 Each app has the same shape:
@@ -192,17 +198,29 @@ Override defaults via env vars:
 SMOKE_TIMEOUT_SECONDS=10 BOARD=native_sim/native/64 ./scripts/smoke_native_sim.sh
 ```
 
+### Testing graphics on native_sim
+
+`test_display` targets the `chosen zephyr,display` device, so on `native_sim` it draws into Zephyr's **SDL display emulator** — letting you exercise the drawing/app layer (not the ST7701 PIO/DMA driver itself) without hardware:
+
+```bash
+west build -p always -b native_sim/native/64 apps/test_display
+./build/zephyr/zephyr.exe                 # opens an SDL window with colour bars + a moving square
+SDL_VIDEODRIVER=offscreen ./build/zephyr/zephyr.exe   # headless (no window), for CI
+```
+
+Requires `libsdl2-dev`. The smoke script runs it with the `offscreen` driver so it works on headless hosts.
+
 ## Pin map (reference)
 
 GPIOs are RP2350B GPIO numbers. In DTS, `&gpio0` covers GP0-31 and `&gpio0_hi` covers GP32-47 (so GP32 = `gpio0_hi` index 0, GP46 = index 14).
 
 | Peripheral | Signal | GPIO | DT label |
 |---|---|---|---|
-| Display data (B/G/R, 18 lanes) | parallel RGB | GP1-GP18 | *reserved (display disabled)* |
-| Display timing | HSYNC / VSYNC / DE / PCLK | GP19 / GP20 / GP21 / GP22 | *reserved* |
-| Display cmd bus (9-bit SPI) | CLK / DATA / CS | GP26 / GP27 / GP28 | *reserved* |
-| Display reset | RESET | GP44 | *reserved* |
-| Backlight | BACKLIGHT_EN (PWM) | GP45 | *reserved* |
+| Display data (RGB565, 16 lanes) | parallel RGB | GP1-GP16 | `&st7701` (GP17/18 tied low) |
+| Display timing | HSYNC / VSYNC / DE / PCLK | GP19 / GP20 / GP21 / GP22 | `&st7701` (PIO1) |
+| Display cmd bus (9-bit, bit-bang) | CLK / DATA / CS | GP26 / GP27 / GP28 | `&st7701` |
+| Display reset | RESET | GP44 | *unused (SWRESET command)* |
+| Backlight | BACKLIGHT_EN | GP45 | `&st7701` (GPIO on/off) |
 | Wi-Fi (CYW43439) | REG_ON / DATA / CS / CLK | GP23 / GP24 / GP25 / GP29 | `&airoc_wifi` (disabled by default) |
 | Touch (FT6236) | SDA / SCL / INT / RESET | GP30 / GP31 / GP32 / GP42 | `&ft6236` on `&i2c1` |
 | NeoPixels | LED_DATA | GP33 | `&ws2812` (alias `led-strip`) |
@@ -228,7 +246,7 @@ GPIOs are RP2350B GPIO numbers. In DTS, `&gpio0` covers GP0-31 and `&gpio0_hi` c
 
 ## Known limitations
 
-- **Display**: ST7701 in 18bpp parallel-RGB mode is not supported by upstream Zephyr. Vendor reference uses 3 custom PIO programs + a ping-pong DMA chain (see [`pimoroni/presto:drivers/st7701/*.pio`](https://github.com/pimoroni/presto/tree/main/drivers/st7701)).
+- **Display**: implemented out-of-tree in `drivers/presto` (RGB565 DPI scanout via two PIO1 SMs + a per-line DMA pair, ported from [`pimoroni/presto:drivers/st7701`](https://github.com/pimoroni/presto/tree/main/drivers/st7701)). **Not yet validated on hardware** (no debugger): PCLK/sync timing, lane→colour mapping and the COLMOD-0x66/16-lane combo need a panel to confirm. Single-buffered, so full-frame `display_write` can tear (a race-the-beam copy is the planned fix). The framebuffer lives in SRAM (~450 KB), leaving little room for large concurrent workloads (e.g. networking) on the same build.
 - **PSRAM**: GP47 has a dedicated PSRAM CS option on the RP2350B, but mapping the chip into the QMI window 1 XIP region requires direct register writes the Zephyr RP2350 HAL doesn't currently expose.
 - **microSD**: Wired for 4-bit SDIO; this initial port leaves it disabled. SPI-mode bring-up is straightforward but not yet wired into an app.
 - **USER_SW** shares the physical button with QSPI BOOTSEL. Pressing it at reset enters the UF2 bootloader; pressing it at runtime fires an INPUT event.
@@ -239,7 +257,7 @@ GPIOs are RP2350B GPIO numbers. In DTS, `&gpio0` covers GP0-31 and `&gpio0_hi` c
 
 Likely next steps, roughly in order of value:
 
-1. **Display driver** — write a Zephyr display driver wrapping the vendor's PIO+DMA approach to ST7701. This is the biggest missing piece.
+1. **Display driver** — ✅ done (`drivers/presto`, see `test_display`). Remaining: validate on hardware (PCLK/sync timing, colour/lane mapping), then add a tearing-aware (race-the-beam) `display_write` and optional LVGL support.
 2. **PSRAM bring-up** — QMI window 1 init at boot to expose the 8 MB as `&psram0`.
 3. **microSD SPI block device** — enable `zephyr,sdhc-spi-slot` with CS on GP39 and mount FAT.
 4. **USB CDC ACM console** — so you don't lose stdio when the display is wired up.

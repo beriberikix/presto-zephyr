@@ -1,0 +1,84 @@
+# Copyright (c) 2026 Jonathan Beri
+# SPDX-License-Identifier: MIT
+
+description: |
+  Pimoroni Presto ST7701S panel in 18bpp parallel-RGB (DPI) mode.
+
+  The panel has no on-controller GRAM: pixels are streamed continuously by
+  two RP2350 PIO1 state machines (pixel data + sync timing) plus a DMA pair.
+  The 16-lane RGB565 data bus uses consecutive GPIOs starting at "data-pin-base"
+  (the two extra RGB666 lanes are tied low by the driver). The node must be a
+  child of a "raspberrypi,pico-pio" controller (PIO1 on the Presto).
+
+  Commands are sent over a bit-banged 9-bit serial bus (D/CX as the 9th bit).
+
+compatible: "pimoroni,st7701-presto"
+
+include: [base.yaml]
+
+properties:
+  width:
+    type: int
+    required: true
+    description: Panel width in pixels (480).
+
+  height:
+    type: int
+    required: true
+    description: Panel height in pixels (480).
+
+  cmd-clk-gpios:
+    type: phandle-array
+    required: true
+    description: 9-bit command bus clock (SCK), GP26.
+
+  cmd-data-gpios:
+    type: phandle-array
+    required: true
+    description: 9-bit command bus data (MOSI/SDA), GP27.
+
+  cmd-cs-gpios:
+    type: phandle-array
+    required: true
+    description: 9-bit command bus chip-select (active low), GP28.
+
+  backlight-gpios:
+    type: phandle-array
+    required: true
+    description: Backlight enable (drives the AP3031 booster CTRL), GP45.
+
+  reset-gpios:
+    type: phandle-array
+    description: |
+      Optional hardware reset. The Presto panel is reset via the ST7701
+      SWRESET command, so this is normally omitted.
+
+  data-pin-base:
+    type: int
+    default: 1
+    description: First GPIO of the consecutive parallel RGB565 data bus (GP1).
+
+  data-pin-count:
+    type: int
+    default: 16
+    description: Number of parallel data lanes (16 for RGB565).
+
+  hsync-pin:
+    type: int
+    required: true
+    description: HSYNC GPIO number (GP19).
+
+  vsync-pin:
+    type: int
+    required: true
+    description: VSYNC GPIO number (GP20).
+
+  de-pin:
+    type: int
+    required: true
+    description: Data-enable GPIO number (GP21); the parallel SM side-set pin.
+
+  pclk-pin:
+    type: int
+    required: true
+    description: Pixel/dot clock GPIO number (GP22); the timing SM side-set pin.

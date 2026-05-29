@@ -211,16 +211,52 @@ zephyr_udc0: &usbd {
 	status = "okay";
 
 	/*
-	 * Display stub. Pins are reserved here for future work.
-	 * The Pimoroni firmware drives the ST7701 in 18bpp parallel RGB
-	 * with three custom PIO programs (st7701_parallel, st7701_timing,
-	 * st7701_palette) plus a ping-pong DMA chain. Upstream Zephyr has
-	 * no driver for this — the panel node stays disabled.
-	 *
-	 * TODO: write a Zephyr display driver for ST7701 parallel RGB.
-	 *       See pimoroni/presto:drivers/st7701/*.pio for the vendor
-	 *       reference.
+	 * Elevate PIO1's interrupt priority above the SoC default (7). The
+	 * display's timing ISR must refill the timing FIFO every scan line or
+	 * the panel loses sync, so it needs to win against ordinary IRQs
+	 * (mirrors the Pimoroni firmware, which raises these to a high level).
 	 */
+	interrupts = <17 2>, <18 2>;
+
+	/*
+	 * ST7701 480x480 panel, driven in 18bpp parallel-RGB (DPI) mode by the
+	 * CONFIG_ST7701_PRESTO driver (out-of-tree module drivers/presto), a
+	 * port of the Pimoroni firmware's PIO+DMA scanout. Disabled by default;
+	 * apps/test_display enables it.
+	 *
+	 * Console note: the first data lane GP1 doubles as UART0 RX, so enabling
+	 * the panel takes over GP1 at runtime. The UART0 console keeps working on
+	 * TX (GP0), which the display does not use, so no console change is
+	 * needed (only UART0 receive is lost).
+	 *
+	 * Pin functions for the 16 RGB565 data lanes (GP1-GP16) and the sync
+	 * pins (GP19-GP22) are configured at runtime by the driver via
+	 * pio_gpio_init(); GP17/GP18 are held low as plain GPIOs. No pinctrl
+	 * group is needed.
+	 */
+	st7701: st7701 {
+		compatible = "pimoroni,st7701-presto";
+		status = "disabled";
+
+		width = <480>;
+		height = <480>;
+
+		/* 9-bit command bus (bit-banged). */
+		cmd-clk-gpios = <&gpio0 26 GPIO_ACTIVE_HIGH>;
+		cmd-data-gpios = <&gpio0 27 GPIO_ACTIVE_HIGH>;
+		cmd-cs-gpios = <&gpio0 28 GPIO_ACTIVE_LOW>;
+
+		/* Backlight enable (AP3031 booster CTRL), GP45 = gpio0_hi[13]. */
+		backlight-gpios = <&gpio0_hi 13 GPIO_ACTIVE_HIGH>;
+
+		/* 16-lane RGB565 data bus + sync, all on PIO1. */
+		data-pin-base = <1>;
+		data-pin-count = <16>;
+		hsync-pin = <19>;
+		vsync-pin = <20>;
+		de-pin = <21>;
+		pclk-pin = <22>;
+	};
 };
 
 /*
