@@ -458,9 +458,21 @@ static int st7701_write(const struct device *dev, uint16_t x, uint16_t y,
 	}
 
 	for (uint16_t row = 0; row < desc->height; row++) {
-		memcpy(&data->fb[(size_t)(y + row) * data->width + x],
-		       &src[(size_t)row * pitch * sizeof(uint16_t)],
-		       (size_t)desc->width * sizeof(uint16_t));
+		const uint8_t *s = &src[(size_t)row * pitch * sizeof(uint16_t)];
+		uint16_t *d = &data->fb[(size_t)(y + row) * data->width + x];
+
+		/*
+		 * Incoming pixels are standard little-endian RGB565
+		 * (PIXEL_FORMAT_RGB_565). The Presto's PIO/DMA scanout consumes
+		 * byte-swapped (big-endian) halfwords - the same framebuffer
+		 * convention Pimoroni's PicoGraphics uses - so swap each pixel's
+		 * bytes on the way in. Without this the bit-reversing parallel
+		 * PIO program drives the colour fields onto the wrong data lanes
+		 * (R->blue, G->red, B->green).
+		 */
+		for (uint16_t col = 0; col < desc->width; col++) {
+			d[col] = (uint16_t)((s[2 * col] << 8) | s[2 * col + 1]);
+		}
 	}
 
 	return 0;
@@ -507,6 +519,13 @@ static int st7701_blanking_off(const struct device *dev)
 	return gpio_pin_set_dt(&cfg->backlight, 1);
 }
 
+/*
+ * Direct access to the scanout framebuffer. WARNING: unlike display_write(),
+ * which accepts standard little-endian PIXEL_FORMAT_RGB_565, the raw buffer
+ * holds *byte-swapped* (big-endian) RGB565 - the layout the PIO/DMA scanout
+ * consumes (see st7701_write()). Callers writing pixels here must byteswap
+ * each halfword themselves (e.g. sys_cpu_to_be16()).
+ */
 static void *st7701_get_framebuffer(const struct device *dev)
 {
 	struct st7701_presto_data *data = dev->data;
