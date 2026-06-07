@@ -2,7 +2,7 @@
 
 Out-of-tree [Zephyr RTOS](https://zephyrproject.org/) board support and example apps for the [Pimoroni Presto](https://shop.pimoroni.com/products/presto): a 4-inch 480×480 touchscreen with RP2350B, 8 MB PSRAM, RM2/CYW43439 Wi-Fi/BT, 7× SK6812 RGB LEDs, microSD, and piezo speaker.
 
-> **Display status: implemented (build-verified; hardware bring-up pending).** The Presto's ST7701 panel runs in 18bpp parallel-RGB (DPI) mode. Upstream Zephyr has no driver for this, so this repo ships an out-of-tree one (`drivers/presto/`) ported from the MIT-licensed Pimoroni firmware: two RP2350 PIO1 state machines (pixel data + sync timing) plus a DMA pair stream a 480×480 RGB565 framebuffer out of SRAM. It compiles clean for the board and the drawing layer runs on `native_sim` via Zephyr's SDL display, but it has **not yet been validated on real hardware** (no debugger). Everything else — NeoPixels, capacitive touch, Wi-Fi, microSD, piezo, user button — is brought up with stock Zephyr drivers.
+> **Display status: hardware-validated.** The Presto's ST7701 panel runs in 18bpp parallel-RGB (DPI) mode. Upstream Zephyr has no driver for this, so this repo ships an out-of-tree one (`drivers/presto/`) ported from the MIT-licensed Pimoroni firmware: two RP2350 PIO1 state machines (pixel data + sync timing) plus a DMA pair stream a 480×480 RGB565 framebuffer out of SRAM. It builds clean, runs on `native_sim` via Zephyr's SDL display, and has been **confirmed on real hardware** (`test_display` colour bars + animated square render correctly over SWD). Everything else — NeoPixels, capacitive touch, Wi-Fi, microSD, piezo, user button — is brought up with stock Zephyr drivers.
 
 Modelled on [`beriberikix/tufty2350-zephyr`](https://github.com/beriberikix/tufty2350-zephyr): same layout, same Zephyr revision pin (v4.4.0), same UF2-drop flash workflow.
 
@@ -17,7 +17,7 @@ Modelled on [`beriberikix/tufty2350-zephyr`](https://github.com/beriberikix/tuft
 | CYW43439 Wi-Fi (RM2) | ✅ builds, fetches blob | `infineon,airoc-wifi` over PIO-SPI; opt-in via overlay |
 | Qw/ST I2C0 (GP40/41) | ✅ working | Use for external breakouts |
 | Piezo (GP43 PWM) | ⚠️ DTS reserved | Driver not wired into an app yet |
-| Display ST7701 | ⚠️ implemented, unverified on HW | Out-of-tree `drivers/presto` (PIO+DMA DPI scanout); builds + runs on `native_sim` SDL; needs a panel to confirm timing/colour |
+| Display ST7701 | ✅ working | Out-of-tree `drivers/presto` (PIO+DMA DPI scanout); HW-validated (colour bars + animated square). Single-buffered (can tear) |
 | 8 MB PSRAM (GP47 CS) | ❌ TODO | QMI window 1 init not exposed by Zephyr |
 | microSD (GP34-39) | ❌ TODO | Wired for 4-bit SDIO; SPI mode not yet enabled |
 
@@ -155,8 +155,18 @@ The board resets and runs the new firmware. To re-enter the bootloader later, ho
 Alternative runners are wired up in [`boards/pimoroni/presto/board.cmake`](boards/pimoroni/presto/board.cmake):
 
 - `west flash --runner uf2` — auto-detect the mounted UF2 drive
-- `west flash --runner openocd` — via CMSIS-DAP probe (e.g. Picoprobe)
+- `west flash --runner openocd` — via CMSIS-DAP probe (e.g. Raspberry Pi Debug Probe / Picoprobe)
 - `west flash --runner probe-rs` — via probe-rs (`--chip=RP235x`)
+
+**openocd note (RP2350):** the Zephyr SDK's bundled openocd has no `target/rp2350.cfg`, so point west at an openocd with RP2350 support — e.g. the one in the pico-sdk. Pass both the binary and its scripts dir (west's own `-s` paths otherwise shadow openocd's built-in default):
+
+```bash
+west flash --runner openocd \
+  --openocd "$HOME/.pico-sdk/openocd/0.12.0+dev/openocd" \
+  --openocd-search "$HOME/.pico-sdk/openocd/0.12.0+dev/scripts"
+```
+
+(`checking adapter speed...` / a one-line `BUG: unknown adapter clock mode` are harmless — the board's `support/openocd.cfg` queries the speed before setting it.) The debug probe only provides SWD, not power — the Presto must be powered over its own USB-C, otherwise openocd reports `Error connecting DP: cannot read IDR`.
 
 ## Apps
 
@@ -246,7 +256,7 @@ GPIOs are RP2350B GPIO numbers. In DTS, `&gpio0` covers GP0-31 and `&gpio0_hi` c
 
 ## Known limitations
 
-- **Display**: implemented out-of-tree in `drivers/presto` (RGB565 DPI scanout via two PIO1 SMs + a per-line DMA pair, ported from [`pimoroni/presto:drivers/st7701`](https://github.com/pimoroni/presto/tree/main/drivers/st7701)). **Not yet validated on hardware** (no debugger): PCLK/sync timing, lane→colour mapping and the COLMOD-0x66/16-lane combo need a panel to confirm. Single-buffered, so full-frame `display_write` can tear (a race-the-beam copy is the planned fix). The framebuffer lives in SRAM (~450 KB), leaving little room for large concurrent workloads (e.g. networking) on the same build.
+- **Display**: implemented out-of-tree in `drivers/presto` (RGB565 DPI scanout via two PIO1 SMs + a per-line DMA pair, ported from [`pimoroni/presto:drivers/st7701`](https://github.com/pimoroni/presto/tree/main/drivers/st7701)). **Hardware-validated**: PCLK/sync timing, lane→colour mapping and the COLMOD-0x66/16-lane combo confirmed on a panel. Note the scanout consumes **byte-swapped RGB565**, matching Pimoroni's PicoGraphics convention — `display_write()` takes standard little-endian RGB565 and byteswaps on the way in, but `get_framebuffer()` returns the raw byte-swapped buffer (direct writers must byteswap themselves). Single-buffered, so full-frame `display_write` can tear (a race-the-beam copy is the planned fix). The framebuffer lives in SRAM (~450 KB), leaving little room for large concurrent workloads (e.g. networking) on the same build.
 - **PSRAM**: GP47 has a dedicated PSRAM CS option on the RP2350B, but mapping the chip into the QMI window 1 XIP region requires direct register writes the Zephyr RP2350 HAL doesn't currently expose.
 - **microSD**: Wired for 4-bit SDIO; this initial port leaves it disabled. SPI-mode bring-up is straightforward but not yet wired into an app.
 - **USER_SW** shares the physical button with QSPI BOOTSEL. Pressing it at reset enters the UF2 bootloader; pressing it at runtime fires an INPUT event.
@@ -257,7 +267,7 @@ GPIOs are RP2350B GPIO numbers. In DTS, `&gpio0` covers GP0-31 and `&gpio0_hi` c
 
 Likely next steps, roughly in order of value:
 
-1. **Display driver** — ✅ done (`drivers/presto`, see `test_display`). Remaining: validate on hardware (PCLK/sync timing, colour/lane mapping), then add a tearing-aware (race-the-beam) `display_write` and optional LVGL support.
+1. **Display driver** — ✅ done and hardware-validated (`drivers/presto`, see `test_display`). Remaining: add a tearing-aware (race-the-beam) `display_write` and optional LVGL support.
 2. **PSRAM bring-up** — QMI window 1 init at boot to expose the 8 MB as `&psram0`.
 3. **microSD SPI block device** — enable `zephyr,sdhc-spi-slot` with CS on GP39 and mount FAT.
 4. **USB CDC ACM console** — so you don't lose stdio when the display is wired up.
