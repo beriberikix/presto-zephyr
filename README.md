@@ -14,7 +14,7 @@ Modelled on [`beriberikix/tufty2350-zephyr`](https://github.com/beriberikix/tuft
 | USER_SW (GP46) | ✅ working | Shared with BOOTSEL; usable as runtime input |
 | 7× SK6812 NeoPixels (GP33) | ✅ working | `worldsemi,ws2812-rpi_pico-pio` on PIO0 SM3 |
 | FT6236 cap touch (I2C1) | ⚠️ partial | I2C comms verified on HW (needs internal pull-ups, now in pinctrl); touch-event reads still lock the bus — open issue |
-| CYW43439 Wi-Fi (RM2) | ✅ builds, fetches blob | `infineon,airoc-wifi` over PIO-SPI; opt-in via overlay |
+| CYW43439 Wi-Fi (RM2) | ✅ working | `infineon,airoc-wifi` over PIO-SPI; HW-validated (firmware loads, MAC read, netif up). Opt-in via overlay; needs ≥4 KB stacks |
 | Qw/ST I2C0 (GP40/41) | ✅ working | Use for external breakouts |
 | Piezo (GP43 PWM) | ⚠️ DTS reserved | Driver not wired into an app yet |
 | Display ST7701 | ✅ working | Out-of-tree `drivers/presto` (PIO+DMA DPI scanout); HW-validated (colour bars + animated square). Single-buffered (can tear) |
