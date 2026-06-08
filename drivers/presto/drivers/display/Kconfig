@@ -44,4 +44,13 @@ config ST7701_PRESTO_HALF_RES
 	  framebuffer scans out of SRAM (the proven path) — unlike a PSRAM
 	  framebuffer, which does not scan cleanly over the shared QMI bus.
 
+config ST7701_PRESTO_DOUBLE_BUFFER
+	bool "Double-buffer the framebuffer (tear-free, via vblank flip)"
+	help
+	  Allocate two framebuffers: the application renders into the back buffer
+	  and calls st7701_presto_flip() to swap it in at the vertical blank, so a
+	  frame is never shown half-drawn. Costs a second framebuffer in SRAM, so
+	  in practice it pairs with CONFIG_ST7701_PRESTO_HALF_RES (two 240x240
+	  buffers = 230 KB; two full-res buffers do not fit and fail a BUILD_ASSERT).
+
 endif # ST7701_PRESTO

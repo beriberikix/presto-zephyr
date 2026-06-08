@@ -84,7 +84,8 @@ struct st7701_presto_config {
 
 struct st7701_presto_data {
 	PIO pio;
-	uint16_t *fb;
+	uint16_t *fb;       /* buffer currently scanned out (read by the ISRs) */
+	uint16_t *fb_back;  /* buffer the application renders into */
 	uint16_t width;
 	uint16_t height;
 	size_t parallel_sm;
@@ -98,6 +99,7 @@ struct st7701_presto_data {
 	volatile uint16_t timing_phase;
 	volatile int display_row;
 	volatile uint16_t *next_line_addr;
+	volatile bool flip_pending; /* swap fb/fb_back at the next vertical blank */
 };
 
 /*
@@ -128,17 +130,35 @@ BUILD_ASSERT(PANEL_HEIGHT == DISPLAY_HEIGHT, "panel height must match the timing
 #define FB_ROW_SHIFT 0
 #endif
 
-/* Framebuffer in SRAM. Uninitialised (cleared at probe). Single instance only. */
-static uint16_t st7701_fb[FB_WIDTH * FB_HEIGHT] __noinit __aligned(4);
+/*
+ * Framebuffer(s) in SRAM. Uninitialised (cleared at probe). With
+ * CONFIG_ST7701_PRESTO_DOUBLE_BUFFER there are two: one is scanned out while the
+ * application renders into the other, swapped at the vertical blank by
+ * st7701_presto_flip() (tear-free). Two full-res buffers do not fit in SRAM, so
+ * double-buffering is practical only with CONFIG_ST7701_PRESTO_HALF_RES - the
+ * BUILD_ASSERT below enforces that.
+ */
+#if defined(CONFIG_ST7701_PRESTO_DOUBLE_BUFFER)
+#define FB_BUFFERS 2
+#else
+#define FB_BUFFERS 1
+#endif
+
+static uint16_t st7701_fb[FB_BUFFERS][FB_WIDTH * FB_HEIGHT] __noinit __aligned(4);
 
 BUILD_ASSERT(DT_INST_PROP(0, data_pin_count) == 16,
 	     "RGB565 scanout drives exactly 16 data lanes");
 BUILD_ASSERT((FB_WIDTH & 1) == 0, "width must be even (DMA packs 2 px per word)");
 BUILD_ASSERT(sizeof(st7701_fb) <= (size_t)CONFIG_SRAM_SIZE * 1024,
-	     "framebuffer does not fit in SRAM");
+	     "framebuffer(s) do not fit in SRAM (try CONFIG_ST7701_PRESTO_HALF_RES)");
 
 /* Single global instance, referenced by the (parameter-less) ISRs. */
 static struct st7701_presto_data *st7701_isr_data;
+
+#if defined(CONFIG_ST7701_PRESTO_DOUBLE_BUFFER)
+/* Given by the end-of-frame ISR once a requested buffer swap has taken effect. */
+static K_SEM_DEFINE(st7701_flip_sem, 0, 1);
+#endif
 
 /* ------------------------------------------------------------------ */
 /* Scanout ISRs (ported from ST7701::drive_timing / handle_end_of_line) */
@@ -241,6 +261,18 @@ static void __ramfunc st7701_start_frame_xfer(struct st7701_presto_data *data)
 	PIO pio = data->pio;
 
 	hw_clear_bits(&pio->irq, 0x2u);
+
+#if defined(CONFIG_ST7701_PRESTO_DOUBLE_BUFFER)
+	/* Present a pending flip here, between frames, so the swap is tear-free. */
+	if (data->flip_pending) {
+		uint16_t *tmp = data->fb;
+
+		data->fb = data->fb_back;
+		data->fb_back = tmp;
+		data->flip_pending = false;
+		k_sem_give(&st7701_flip_sem);
+	}
+#endif
 
 	data->next_line_addr = NULL;
 	dma_channel_abort(data->dma_data);
@@ -494,7 +526,7 @@ static int st7701_write(const struct device *dev, uint16_t x, uint16_t y,
 
 	for (uint16_t row = 0; row < desc->height; row++) {
 		const uint8_t *s = &src[(size_t)row * pitch * sizeof(uint16_t)];
-		uint16_t *d = &data->fb[(size_t)(y + row) * data->width + x];
+		uint16_t *d = &data->fb_back[(size_t)(y + row) * data->width + x];
 
 		/*
 		 * Incoming pixels are standard little-endian RGB565
@@ -555,17 +587,38 @@ static int st7701_blanking_off(const struct device *dev)
 }
 
 /*
- * Direct access to the scanout framebuffer. WARNING: unlike display_write(),
- * which accepts standard little-endian PIXEL_FORMAT_RGB_565, the raw buffer
- * holds *byte-swapped* (big-endian) RGB565 - the layout the PIO/DMA scanout
- * consumes (see st7701_write()). Callers writing pixels here must byteswap
- * each halfword themselves (e.g. sys_cpu_to_be16()).
+ * Direct access to the back framebuffer (the one the app renders into; in a
+ * single-buffer build this is also the scanout buffer). WARNING: unlike
+ * display_write(), which accepts standard little-endian PIXEL_FORMAT_RGB_565,
+ * the raw buffer holds *byte-swapped* (big-endian) RGB565 - the layout the
+ * PIO/DMA scanout consumes (see st7701_write()). Callers writing pixels here
+ * must byteswap each halfword themselves (e.g. sys_cpu_to_be16()). After a
+ * st7701_presto_flip() the back buffer changes, so re-fetch it.
  */
 static void *st7701_get_framebuffer(const struct device *dev)
 {
 	struct st7701_presto_data *data = dev->data;
 
-	return data->fb;
+	return data->fb_back;
+}
+
+/*
+ * Present the rendered back buffer: request a swap at the next vertical blank
+ * and block until it takes effect (tear-free). In a single-buffer build there
+ * is nothing to swap and this returns immediately. Declare it where you call it
+ * with: extern void st7701_presto_flip(const struct device *dev);
+ */
+void st7701_presto_flip(const struct device *dev)
+{
+#if defined(CONFIG_ST7701_PRESTO_DOUBLE_BUFFER)
+	struct st7701_presto_data *data = dev->data;
+
+	k_sem_reset(&st7701_flip_sem);
+	data->flip_pending = true;
+	k_sem_take(&st7701_flip_sem, K_FOREVER);
+#else
+	ARG_UNUSED(dev);
+#endif
 }
 
 static const struct display_driver_api st7701_api = {
@@ -599,7 +652,8 @@ static int st7701_init(const struct device *dev)
 	}
 
 	data->pio = pio_rpi_pico_get_pio(cfg->pio_dev);
-	data->fb = st7701_fb;
+	data->fb = st7701_fb[0];                  /* scanned out first */
+	data->fb_back = st7701_fb[FB_BUFFERS - 1]; /* rendered into (== fb if single) */
 	data->width = FB_WIDTH;     /* source (framebuffer) geometry: equals the */
 	data->height = FB_HEIGHT;   /* panel in full-res, half it in half-res */
 	st7701_isr_data = data;
@@ -616,7 +670,7 @@ static int st7701_init(const struct device *dev)
 		k_msleep(10);
 	}
 
-	memset(data->fb, 0, (size_t)data->width * data->height * sizeof(uint16_t));
+	memset(st7701_fb, 0, sizeof(st7701_fb)); /* clear all buffers */
 
 	ret = st7701_pio_dma_init(cfg, data);
 	if (ret < 0) {

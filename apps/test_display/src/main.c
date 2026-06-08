@@ -21,6 +21,11 @@
 
 LOG_MODULE_REGISTER(test_display, LOG_LEVEL_INF);
 
+#if IS_ENABLED(CONFIG_ST7701_PRESTO_DOUBLE_BUFFER)
+/* Provided by the ST7701 driver: present the back buffer at the next vblank. */
+extern void st7701_presto_flip(const struct device *dev);
+#endif
+
 /* Sized for the largest panel we target (480 wide). */
 #define MAX_WIDTH 480
 #define CHUNK_H   16
@@ -109,6 +114,12 @@ int main(void)
 	while (1) {
 		draw_bars(disp, w, h);
 		display_write(disp, x, y, &box_desc, box_buf);
+#if IS_ENABLED(CONFIG_ST7701_PRESTO_DOUBLE_BUFFER)
+		/* Present the freshly-drawn frame; the swap happens in the vblank
+		 * so the moving square never tears.
+		 */
+		st7701_presto_flip(disp);
+#endif
 
 		x += dx;
 		if (x <= 0 || x >= w - BOX) {

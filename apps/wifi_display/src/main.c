@@ -44,6 +44,11 @@ static uint16_t chunk_buf[MAX_WIDTH * CHUNK_H];
 static const struct device *disp;
 static uint16_t disp_w, disp_h;
 
+#if IS_ENABLED(CONFIG_ST7701_PRESTO_DOUBLE_BUFFER)
+/* Provided by the ST7701 driver: present the back buffer at the next vblank. */
+extern void st7701_presto_flip(const struct device *dev);
+#endif
+
 /* Fill the whole panel with one colour, CHUNK_H rows at a time. */
 static void fill_screen(uint16_t color)
 {
@@ -67,6 +72,13 @@ static void fill_screen(uint16_t color)
 		desc.buf_size = (size_t)disp_w * rows * sizeof(uint16_t);
 		display_write(disp, 0, y, &desc, chunk_buf);
 	}
+
+#if IS_ENABLED(CONFIG_ST7701_PRESTO_DOUBLE_BUFFER)
+	/* Present the fill if the driver is double-buffered (else this is a no-op
+	 * and the writes above already went to the live scanout buffer).
+	 */
+	st7701_presto_flip(disp);
+#endif
 }
 
 static int display_init(void)
