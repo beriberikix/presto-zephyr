@@ -52,6 +52,8 @@
 #include <zephyr/dt-bindings/i2c/i2c.h>
 #include <zephyr/dt-bindings/input/input-event-codes.h>
 #include <zephyr/dt-bindings/led/led.h>
+#include <zephyr/dt-bindings/memory-attr/memory-attr-arm.h>
+#include <zephyr/dt-bindings/memory-attr/memory-attr-sw.h>
 
 #include "presto-pinctrl.dtsi"
 
@@ -286,8 +288,18 @@ zephyr_udc0: &usbd {
 };
 
 /*
- * PSRAM (8MB APS6404 on dedicated CS = GP47) — out of scope this iteration.
- * RP2350B has a dedicated PSRAM CS option; mapping it into XIP space
- * requires QMI window 1 register init that Zephyr does not currently
- * expose. Pin remains unclaimed so a future patch can drive it.
+ * 8MB APS6404 PSRAM on the RP2350B dedicated CS (GP47 = QMI CS1), mapped at
+ * 0x11000000. CONFIG_PIMORONI_RP2350_PSRAM runs the QMI window-1 bring-up at
+ * boot (drivers/presto/drivers/memc). The memory-attr tags add an MPU RAM
+ * window and let CONFIG_MEM_ATTR_HEAP allocate from it
+ * (mem_attr_heap_alloc(DT_MEM_SW_ALLOC_DMA, ...)).
  */
+/ {
+	psram: memory@11000000 {
+		compatible = "pimoroni,rp2350-psram", "zephyr,memory-region", "mmio-sram";
+		reg = <0x11000000 DT_SIZE_M(8)>;
+		zephyr,memory-region = "PSRAM";
+		zephyr,memory-attr = <( DT_MEM_ARM(ATTR_MPU_RAM) | DT_MEM_SW(ATTR_SW_ALLOC_DMA) )>;
+		cs-pin = <47>; /* GP47 = QMI CS1 */
+	};
+};

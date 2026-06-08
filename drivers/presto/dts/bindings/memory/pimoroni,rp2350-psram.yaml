@@ -1,0 +1,24 @@
+# Copyright (c) 2026 Jonathan Beri
+# SPDX-License-Identifier: MIT
+
+description: |
+  Pimoroni Presto 8 MB APS6404 PSRAM on the RP2350B QMI window 1
+  (chip-select CS1 = GP47), memory-mapped into XIP space at 0x11000000.
+
+  A SYS_INIT driver (CONFIG_PIMORONI_RP2350_PSRAM) performs the QMI/APS6404
+  bring-up at boot; after that the region is plain read/write RAM. Tag the
+  node with `zephyr,memory-attr` (DT_MEM_ARM(ATTR_MPU_RAM) for the MPU window
+  plus a DT_MEM_SW(ATTR_SW_ALLOC_*) tag) and enable CONFIG_MEM_ATTR_HEAP to
+  allocate from it with mem_attr_heap_alloc().
+
+compatible: "pimoroni,rp2350-psram"
+
+include: [base.yaml, "zephyr,memory-region.yaml"]
+
+properties:
+  cs-pin:
+    type: int
+    required: true
+    description: |
+      RP2350 GPIO number wired to the APS6404 chip-select. Set to the QMI
+      XIP_CS1 pad function by the driver (the Presto wires this to GP47).
