@@ -1,0 +1,21 @@
+/*
+ * SPDX-License-Identifier: MIT
+ *
+ * Enable the ST7701 panel (system display) and the CYW43439 radio together.
+ * The board conf selects the half-resolution framebuffer (240x240 in SRAM), so
+ * the display scanout and the Wi-Fi stack coexist in the freed SRAM.
+ */
+
+/ {
+	chosen {
+		zephyr,display = &st7701;
+	};
+};
+
+&st7701 {
+	status = "okay";
+};
+
+&airoc_wifi {
+	status = "okay";
+};

@@ -1,0 +1,33 @@
+# wifi_display application options
+# SPDX-License-Identifier: MIT
+
+mainmenu "Pimoroni Presto Wi-Fi + display demo"
+
+config WIFI_DISPLAY_SSID
+	string "Wi-Fi SSID to connect to"
+	default ""
+	help
+	  SSID of the WPA2-PSK access point to join. Leave empty and set it in a
+	  local (un-committed) conf file or via menuconfig, e.g.
+	  CONFIG_WIFI_DISPLAY_SSID="my-network".
+
+config WIFI_DISPLAY_PSK
+	string "Wi-Fi WPA2 PSK"
+	default ""
+	help
+	  Pre-shared key for the access point. An empty PSK is treated as an open
+	  network.
+
+config WIFI_DISPLAY_HTTP_HOST
+	string "HTTP host to GET as the connectivity proof"
+	default "example.com"
+
+config WIFI_DISPLAY_HTTP_PATH
+	string "HTTP path to GET"
+	default "/"
+
+config WIFI_DISPLAY_HTTP_PORT
+	int "HTTP port"
+	default 80
+
+source "Kconfig.zephyr"

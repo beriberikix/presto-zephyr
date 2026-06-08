@@ -31,4 +31,26 @@ config ST7701_PRESTO_INIT_PRIORITY
 	  Device init priority (POST_KERNEL). Must be after the PIO, DMA and
 	  GPIO drivers.
 
+config ST7701_PRESTO_HALF_RES
+	bool "Half-resolution (240x240) framebuffer, pixel-doubled to the panel"
+	help
+	  Drive the 480x480 panel from a 240x240 RGB565 framebuffer (115 KB
+	  instead of 450 KB), pixel- and line-doubled in the PIO/DMA scanout: the
+	  parallel state machine runs at half the PCLK rate (each source pixel
+	  spans two panel columns) and each source line is scanned twice. This
+	  frees ~335 KB of SRAM so the networking stack can run alongside the
+	  display. Panel timing and refresh rate are unchanged; only the effective
+	  resolution is halved. Mirrors Pimoroni's full_res=false mode. The
+	  framebuffer scans out of SRAM (the proven path) — unlike a PSRAM
+	  framebuffer, which does not scan cleanly over the shared QMI bus.
+
+config ST7701_PRESTO_DOUBLE_BUFFER
+	bool "Double-buffer the framebuffer (tear-free, via vblank flip)"
+	help
+	  Allocate two framebuffers: the application renders into the back buffer
+	  and calls st7701_presto_flip() to swap it in at the vertical blank, so a
+	  frame is never shown half-drawn. Costs a second framebuffer in SRAM, so
+	  in practice it pairs with CONFIG_ST7701_PRESTO_HALF_RES (two 240x240
+	  buffers = 230 KB; two full-res buffers do not fit and fail a BUILD_ASSERT).
+
 endif # ST7701_PRESTO
