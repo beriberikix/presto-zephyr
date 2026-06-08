@@ -1,12 +1,17 @@
 cmake_minimum_required(VERSION 3.20.0)
 list(APPEND BOARD_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../..)
+list(APPEND ZEPHYR_EXTRA_MODULES ${CMAKE_CURRENT_SOURCE_DIR}/../../drivers/presto)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(kitchen_sink)
 
 target_sources(app PRIVATE
 	src/main.c
+	src/gfx.c
+	src/ui.c
+	src/touch.c
 	src/screen_neopixel.c
 	src/screen_button.c
 	src/screen_touch.c
 	src/screen_wifi.c
+	src/screen_psram.c
 )

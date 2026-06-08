@@ -49,5 +49,6 @@ Thumbs.db
 .env
 *.local
 
-# Local Wi-Fi credentials for wifi_display (never commit)
+# Local Wi-Fi credentials (never commit)
 apps/wifi_display/wifi_creds.conf
+apps/kitchen_sink/wifi_creds.conf

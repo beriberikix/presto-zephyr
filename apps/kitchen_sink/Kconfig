@@ -1,0 +1,20 @@
+# kitchen_sink application options
+# SPDX-License-Identifier: MIT
+
+mainmenu "Pimoroni Presto kitchen sink demo"
+
+config KITCHEN_SINK_WIFI_SSID
+	string "Wi-Fi SSID for the Wi-Fi screen"
+	default ""
+	help
+	  SSID the Wi-Fi screen joins. Leave empty and set it in an untracked
+	  wifi_creds.conf (gitignored), e.g. CONFIG_KITCHEN_SINK_WIFI_SSID="net".
+	  Empty means the Wi-Fi screen just shows "(no SSID set)".
+
+config KITCHEN_SINK_WIFI_PSK
+	string "Wi-Fi WPA2 PSK"
+	default ""
+	help
+	  Pre-shared key for the AP. Empty is treated as an open network.
+
+source "Kconfig.zephyr"

@@ -1,114 +1,80 @@
 /*
  * SPDX-License-Identifier: MIT
  *
- * Touch screen: subscribes to INPUT events from the FT6236 and reports the
- * latest touched coordinate when this screen is active.
+ * Touch screen: draws a dot at the current FT6236 touch point and shows the
+ * raw coordinates. The shared touch subscriber lives in touch.c.
  */
 
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <stdio.h>
 
 #include "screens.h"
+#include "touch.h"
+#include "ui.h"
 
 LOG_MODULE_REGISTER(screen_touch, LOG_LEVEL_INF);
 
+static struct touch_point last;
+
+static int touch_enter(void)
+{
+	last.x = 0;
+	last.y = 0;
+	last.pressed = false;
 #if !IS_ENABLED(CONFIG_INPUT_FT6146)
-
-static int touch_enter(void)
-{
 	LOG_WRN("FT6236 driver disabled in this build");
-	return -ENODEV;
-}
-
-static void touch_update(void)
-{
-}
-
-static void touch_leave(void)
-{
-}
-
-#else
-
-#include <zephyr/device.h>
-#include <zephyr/input/input.h>
-
-#define TOUCH_NODE DT_NODELABEL(ft6236)
-
-static const struct device *const touch = DEVICE_DT_GET(TOUCH_NODE);
-
-static struct {
-	int16_t x;
-	int16_t y;
-	bool pressed;
-	bool active;
-	bool dirty;
-} state;
-
-static void on_input(struct input_event *evt, void *user_data)
-{
-	ARG_UNUSED(user_data);
-
-	if (evt->dev != touch || !state.active) {
-		return;
-	}
-
-	switch (evt->code) {
-	case INPUT_ABS_X:
-		state.x = (int16_t)evt->value;
-		state.dirty = true;
-		break;
-	case INPUT_ABS_Y:
-		state.y = (int16_t)evt->value;
-		state.dirty = true;
-		break;
-	case INPUT_BTN_TOUCH:
-		state.pressed = evt->value != 0;
-		state.dirty = true;
-		break;
-	default:
-		break;
-	}
-}
-
-INPUT_CALLBACK_DEFINE(NULL, on_input, NULL);
-
-static int touch_enter(void)
-{
-	state.active = true;
-	state.dirty = false;
-
-	if (!device_is_ready(touch)) {
-		LOG_WRN("Touch controller not ready");
-		return -ENODEV;
-	}
-
-	LOG_INF("Touch screen ready");
+#endif
 	return 0;
 }
 
-static void touch_update(void)
+static bool touch_update(void)
 {
-	if (!state.dirty) {
-		return;
+	struct touch_point t;
+
+	touch_get(&t);
+	if (t.x == last.x && t.y == last.y && t.pressed == last.pressed) {
+		return false;
+	}
+	last = t;
+	return true;
+}
+
+static void touch_render(void)
+{
+	ui_begin("Touch", COL_GREEN);
+
+#if IS_ENABLED(CONFIG_INPUT_FT6146)
+	if (last.pressed) {
+		int px = (int)last.x * gfx_width() / TOUCH_RAW_MAX;
+		int py = (int)last.y * gfx_height() / TOUCH_RAW_MAX;
+
+		gfx_fill_rect(px - 6, py - 6, 12, 12, COL_WHITE);
 	}
 
-	LOG_INF("touch: x=%d y=%d %s", state.x, state.y,
-		state.pressed ? "down" : "up");
-	state.dirty = false;
+	gfx_text(8, 44, last.pressed ? "touching" : "touch the screen", COL_GREY,
+		 UI_BG, 1);
+
+	char buf[24];
+
+	snprintf(buf, sizeof(buf), "x=%4d y=%4d", last.x, last.y);
+	gfx_text(8, gfx_height() - 30, buf, COL_WHITE, UI_BG, 1);
+#else
+	gfx_text(8, 96, "touch n/a", COL_GREY, UI_BG, 2);
+#endif
+
+	ui_footer();
 }
 
 static void touch_leave(void)
 {
-	state.active = false;
 }
-
-#endif /* CONFIG_INPUT_FT6146 */
 
 static const struct screen instance = {
 	.name = "touch",
 	.enter = touch_enter,
 	.update = touch_update,
+	.render = touch_render,
 	.leave = touch_leave,
 };
 

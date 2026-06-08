@@ -12,7 +12,7 @@ Modelled on [`beriberikix/tufty2350-zephyr`](https://github.com/beriberikix/tuft
 |---|---|---|
 | RP2350B SoC | ✅ working | UF2 boots, GPIO/I2C/PIO/DMA/PWM all initialise |
 | USER_SW (GP46) | ✅ working | Shared with BOOTSEL; usable as runtime input |
-| 7× SK6812 NeoPixels (GP33) | ✅ working | `worldsemi,ws2812-rpi_pico-pio` on PIO0 SM3 |
+| 7× SK6812 NeoPixels (GP33) | ✅ working | `worldsemi,ws2812-rpi_pico-pio` on PIO2 (PIO0 hosts Wi-Fi, PIO1 the display) so all three coexist |
 | FT6236 cap touch | ✅ working | HW-validated (x/y down/up events). On a **software bit-bang I2C** bus (`gpio-i2c`, GP30/31): the panel clock-stretches and the RP2350 hardware I2C locks up on it; bit-bang tolerates it, like Pimoroni's MicroPython |
 | CYW43439 Wi-Fi (RM2) | ✅ working | `infineon,airoc-wifi` over PIO-SPI; HW-validated (firmware loads, MAC read, netif up). Opt-in via overlay; needs ≥4 KB stacks |
 | Qw/ST I2C0 (GP40/41) | ✅ working | Use for external breakouts |
@@ -48,7 +48,7 @@ Modelled on [`beriberikix/tufty2350-zephyr`](https://github.com/beriberikix/tuft
 │   ├── test_display/                # ST7701 colour bars + animated square (SDL on native_sim)
 │   ├── test_psram/                  # 8 MB PSRAM detect + full RW test + heap alloc
 │   ├── wifi_display/                # Wi-Fi connect + DHCP + HTTP GET, status on the panel
-│   └── kitchen_sink/                # 4-screen cycler (auto + USER_SW)
+│   └── kitchen_sink/                # 5 feature screens on the panel, touch-swipe nav
 ├── scripts/
 │   └── smoke_native_sim.sh          # Builds all apps for native_sim, runs 3 s each
 ├── CMakeLists.txt                   # Top-level placeholder
@@ -66,7 +66,7 @@ Modelled on [`beriberikix/tufty2350-zephyr`](https://github.com/beriberikix/tuft
 | PSRAM | 8 MB APS6404 on dedicated CS (GP47), mapped at `0x11000000` via QMI window 1 |
 | Display | 4″ 480×480 IPS, ST7701, 18bpp parallel RGB + 9-bit SPI cmd bus — driven by `drivers/presto` (PIO+DMA DPI scanout) |
 | Touch | FT6236 capacitive, addr 0x48, software bit-bang I2C on GP30/31 (panel clock-stretches; RP2350 HW I2C locks up) |
-| LEDs | 7× SK6812 NeoPixels, GP33 (PIO0 SM3) |
+| LEDs | 7× SK6812 NeoPixels, GP33 (PIO2) |
 | Wireless | RM2 module (CYW43439) — Wi-Fi b/g/n + BT, PIO-SPI |
 | Storage | microSD slot, SDIO-capable |
 | Audio | Piezo speaker on GP43 (PWM) |
@@ -206,14 +206,14 @@ west flash --runner openocd \
 
 | App | What it does | Hardware exercised |
 |---|---|---|
-| `test_leds` | Cycles the 7-LED chain through R / G / B / off | WS2812-PIO on PIO0 SM3 |
+| `test_leds` | Cycles the 7-LED chain through R / G / B / off | WS2812-PIO on PIO2 |
 | `test_buttons` | Polls USER_SW every 20 ms, logs press/release edges | GPIO, BOOTSEL-shared button |
 | `test_touch` | Subscribes to INPUT events from the FT6236, logs (x, y, pressed) | I2C1, INPUT subsystem |
 | `test_wifi` | Acquires the default network interface; placeholder for scan | CYW43439 over PIO-SPI |
 | `test_display` | Draws RGB565 colour bars + an animated square via the display API | ST7701 (board) / SDL (`native_sim`) |
 | `test_psram` | Detects the 8 MB PSRAM, walks the full device (address/pattern/walking-bit tests), allocates from the PSRAM heap | APS6404 over QMI window 1 |
 | `wifi_display` | Half-res display + Wi-Fi: associates to an AP, takes a DHCP lease, resolves a name + HTTP GET, and tracks each phase as a status colour on the panel | ST7701 + CYW43439 **together** |
-| `kitchen_sink` | Cycles through neopixel / button / touch / wifi "screens" every 5 s (or on USER_SW press) | All of the above |
+| `kitchen_sink` | Five feature screens (neopixel / button / touch / wifi / psram) rendered on the ST7701 with an 8x8 bitmap font; navigate by **touch swipe** or USER_SW. Half-res + double-buffered so the display, Wi-Fi and LEDs run together | All of the above |
 
 Each app has the same shape:
 

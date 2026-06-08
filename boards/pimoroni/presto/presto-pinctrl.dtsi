@@ -76,10 +76,10 @@
 		};
 	};
 
-	/* WS2812 (7x SK6812) chain data on GP33, driven by PIO0 SM3. */
-	ws2812_pio0_default: ws2812_pio0_default {
+	/* WS2812 (7x SK6812) chain data on GP33, driven by PIO2 (PIO0 hosts Wi-Fi). */
+	ws2812_pio2_default: ws2812_pio2_default {
 		group1 {
-			pinmux = <PIO0_P33>;
+			pinmux = <PIO2_P33>;
 		};
 	};
 };
