@@ -108,10 +108,7 @@ static int ws2812_led_strip_sm_init(const struct device *dev)
 	sm_config_set_fifo_join(&sm_config, PIO_FIFO_JOIN_TX);
 	sm_config_set_clkdiv(&sm_config, clkdiv);
 	pio_sm_set_consecutive_pindirs(pio, sm, config->gpio_pin, 1, true);
-	/* Start at the program entrypoint. The program is not relocatable (its
-	 * jumps are absolute), so the parent init loads it at, and asserts, offset 0.
-	 */
-	pio_sm_init(pio, sm, 0, &sm_config);
+	pio_sm_init(pio, sm, -1, &sm_config);
 	pio_sm_set_enabled(pio, sm, true);
 
 	return sm;
@@ -377,17 +374,12 @@ static int ws2812_rpi_pico_pio_init(const struct device *dev)
 #endif
 
 	/*
-	 * The 4-instruction program uses absolute jump targets, so it is NOT
-	 * relocatable and must load at offset 0. Each Presto strip owns a
-	 * dedicated PIO (PIO2), so the first free offset is 0; fail loudly if a
-	 * shared PIO ever pushes it elsewhere (the SM would run wrong jumps).
+	 * The program is relocatable: pio_add_program() picks a free offset
+	 * (top-down, so 28 on an otherwise-empty PIO) and the HAL fixes up the
+	 * jmp targets by that offset as it loads (pio.c add_program_at_offset).
+	 * pio_sm_init() is given -1 so the SM starts inside the loaded program.
 	 */
-	int offset = pio_add_program(pio, &config->program);
-
-	if (offset != 0) {
-		LOG_ERR("%s: WS2812 program must load at offset 0, got %d", dev->name, offset);
-		return -EIO;
-	}
+	pio_add_program(pio, &config->program);
 
 	return pinctrl_apply_state(config->pcfg, PINCTRL_STATE_DEFAULT);
 }
