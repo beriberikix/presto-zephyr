@@ -13,7 +13,7 @@ Modelled on [`beriberikix/tufty2350-zephyr`](https://github.com/beriberikix/tuft
 | RP2350B SoC | ✅ working | UF2 boots, GPIO/I2C/PIO/DMA/PWM all initialise |
 | USER_SW (GP46) | ✅ working | Shared with BOOTSEL; usable as runtime input |
 | 7× SK6812 NeoPixels (GP33) | ✅ working | `worldsemi,ws2812-rpi_pico-pio` on PIO0 SM3 |
-| FT6236 cap touch (I2C1) | ⚠️ partial | I2C comms verified on HW (needs internal pull-ups, now in pinctrl); touch-event reads still lock the bus — open issue |
+| FT6236 cap touch | ✅ working | HW-validated (x/y down/up events). On a **software bit-bang I2C** bus (`gpio-i2c`, GP30/31): the panel clock-stretches and the RP2350 hardware I2C locks up on it; bit-bang tolerates it, like Pimoroni's MicroPython |
 | CYW43439 Wi-Fi (RM2) | ✅ working | `infineon,airoc-wifi` over PIO-SPI; HW-validated (firmware loads, MAC read, netif up). Opt-in via overlay; needs ≥4 KB stacks |
 | Qw/ST I2C0 (GP40/41) | ✅ working | Use for external breakouts |
 | Piezo (GP43 PWM) | ⚠️ DTS reserved | Driver not wired into an app yet |
@@ -62,7 +62,7 @@ Modelled on [`beriberikix/tufty2350-zephyr`](https://github.com/beriberikix/tuft
 | Flash | 16 MB QSPI (W25Q128) |
 | PSRAM | 8 MB APS6404 on dedicated CS (GP47) — *not currently initialised* |
 | Display | 4″ 480×480 IPS, ST7701, 18bpp parallel RGB + 9-bit SPI cmd bus — driven by `drivers/presto` (PIO+DMA DPI scanout) |
-| Touch | FT6236 capacitive, I2C1, addr 0x48 |
+| Touch | FT6236 capacitive, addr 0x48, software bit-bang I2C on GP30/31 (panel clock-stretches; RP2350 HW I2C locks up) |
 | LEDs | 7× SK6812 NeoPixels, GP33 (PIO0 SM3) |
 | Wireless | RM2 module (CYW43439) — Wi-Fi b/g/n + BT, PIO-SPI |
 | Storage | microSD slot, SDIO-capable |
@@ -232,7 +232,7 @@ GPIOs are RP2350B GPIO numbers. In DTS, `&gpio0` covers GP0-31 and `&gpio0_hi` c
 | Display reset | RESET | GP44 | *unused (SWRESET command)* |
 | Backlight | BACKLIGHT_EN | GP45 | `&st7701` (GPIO on/off) |
 | Wi-Fi (CYW43439) | REG_ON / DATA / CS / CLK | GP23 / GP24 / GP25 / GP29 | `&airoc_wifi` (disabled by default) |
-| Touch (FT6236) | SDA / SCL / INT / RESET | GP30 / GP31 / GP32 / GP42 | `&ft6236` on `&i2c1` |
+| Touch (FT6236) | SDA / SCL / INT / RESET | GP30 / GP31 / GP32 / GP42 | `&ft6236` on `&touch_i2c` (bit-bang; HW `&i2c1` disabled) |
 | NeoPixels | LED_DATA | GP33 | `&ws2812` (alias `led-strip`) |
 | microSD | SCLK / CMD / DAT0-3 | GP34 / GP35 / GP36-39 | *reserved* |
 | Qw/ST I2C | SDA / SCL | GP40 / GP41 | `&i2c0` |
