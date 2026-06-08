@@ -175,10 +175,7 @@ zephyr_udc0: &usbd {
 &pio0 {
 	status = "okay";
 
-	/*
-	 * CYW43439 PIO-SPI bus. SM0..2 are consumed by the airoc driver;
-	 * SM3 remains free for the WS2812 chain below.
-	 */
+	/* CYW43439 PIO-SPI bus (SM0..2 consumed by the airoc driver). */
 	pio0_spi0: pio0_spi0 {
 		compatible = "raspberrypi,pico-spi-pio";
 		clocks = <&clocks RPI_PICO_CLKID_CLK_SYS>;
@@ -214,11 +211,22 @@ zephyr_udc0: &usbd {
 		};
 	};
 
-	/* 7x SK6812 ambient lighting chain, GRB order, GP33. */
+};
+
+/*
+ * 7x SK6812 ambient lighting chain, GRB order, GP33. Placed on PIO2 (not PIO0)
+ * so it coexists with the CYW43439 Wi-Fi PIO-SPI on PIO0: the
+ * ws2812-rpi_pico-pio driver assumes its program loads at PIO offset 0, which
+ * only holds on a PIO the radio's programs are not already occupying. Display
+ * uses PIO1, so PIO2 is the free block.
+ */
+&pio2 {
+	status = "okay";
+
 	ws2812_pio: ws2812_pio {
 		compatible = "worldsemi,ws2812-rpi_pico-pio";
 		status = "okay";
-		pinctrl-0 = <&ws2812_pio0_default>;
+		pinctrl-0 = <&ws2812_pio2_default>;
 		pinctrl-names = "default";
 		bit-waveform = <3>, <3>, <4>;
 

@@ -1,6 +1,16 @@
 /* SPDX-License-Identifier: MIT */
 
-/* Enable the Wi-Fi radio when this overlay is applied. */
+/* Make the ST7701 the system display and enable it + the CYW43439 radio. */
+/ {
+	chosen {
+		zephyr,display = &st7701;
+	};
+};
+
+&st7701 {
+	status = "okay";
+};
+
 &airoc_wifi {
 	status = "okay";
 };
