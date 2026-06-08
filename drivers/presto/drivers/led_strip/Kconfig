@@ -1,0 +1,17 @@
+# WS2812/SK6812 PIO LED-strip driver for the Pimoroni Presto (RP2350B fork)
+#
+# Copyright (c) 2026 Jonathan Beri
+# SPDX-License-Identifier: MIT
+
+config WS2812_STRIP_PRESTO_PIO
+	bool "Pimoroni Presto WS2812 PIO LED strip"
+	default y
+	depends on DT_HAS_PIMORONI_WS2812_PRESTO_PIO_ENABLED
+	depends on LED_STRIP
+	select PICOSDK_USE_PIO
+	help
+	  Presto-local fork of WS2812_STRIP_RPI_PICO_PIO that drives the 7x SK6812
+	  ambient LED chain on GP33 over a Raspberry Pi Pico PIO state machine.
+	  Adds the RP2350B fixes the upstream driver lacks: a pio_set_gpio_base(16)
+	  call so the PIO can reach a GPIO > 31, and an absolute `out-pin` so the
+	  data line resolves to GP33 rather than a gpio0_hi-relative cell.

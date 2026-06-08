@@ -2,4 +2,5 @@
 # SPDX-License-Identifier: MIT
 
 add_subdirectory(drivers/display)
+add_subdirectory(drivers/led_strip)
 add_subdirectory(drivers/memc)

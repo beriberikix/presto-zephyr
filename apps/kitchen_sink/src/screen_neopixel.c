@@ -26,9 +26,14 @@ LOG_MODULE_REGISTER(screen_neopixel, LOG_LEVEL_INF);
 #define STRIP_NODE DT_ALIAS(led_strip)
 #define STRIP_LEN  DT_PROP_OR(STRIP_NODE, chain_length, 7)
 
+/* Advance the colour wheel one position every WHEEL_TICKS ticks (TICK_MS=50ms),
+ * i.e. ~5 steps/s — a gentle rotation instead of a blur. */
+#define WHEEL_TICKS 4
+
 static const struct device *const strip = DEVICE_DT_GET(STRIP_NODE);
 static struct led_rgb pixels[STRIP_LEN];
 static size_t step;
+static unsigned int ticks;
 static bool have_strip;
 
 static const struct led_rgb wheel[] = {
@@ -38,17 +43,7 @@ static const struct led_rgb wheel[] = {
 	{ .r = 0x18, .g = 0x00, .b = 0x18 },
 };
 
-static int neopixel_enter(void)
-{
-	step = 0;
-	have_strip = device_is_ready(strip);
-	if (!have_strip) {
-		LOG_WRN("LED strip not ready");
-	}
-	return have_strip ? 0 : -ENODEV;
-}
-
-static bool neopixel_update(void)
+static void neopixel_show(void)
 {
 	for (size_t i = 0; i < STRIP_LEN; i++) {
 		pixels[i] = wheel[(step + i) % ARRAY_SIZE(wheel)];
@@ -56,8 +51,30 @@ static bool neopixel_update(void)
 	if (have_strip) {
 		(void)led_strip_update_rgb(strip, pixels, STRIP_LEN);
 	}
+}
+
+static int neopixel_enter(void)
+{
+	step = 0;
+	ticks = 0;
+	have_strip = device_is_ready(strip);
+	if (!have_strip) {
+		LOG_WRN("LED strip not ready");
+	}
+	neopixel_show(); /* paint the first frame so the wheel isn't blank on entry */
+	return have_strip ? 0 : -ENODEV;
+}
+
+static bool neopixel_update(void)
+{
+	if (++ticks < WHEEL_TICKS) {
+		return false; /* unchanged this tick — no LED write, no repaint */
+	}
+	ticks = 0;
+
 	step++;
-	return true; /* animated every tick */
+	neopixel_show();
+	return true; /* swatches + LEDs advanced one position */
 }
 
 static void neopixel_render(void)
