@@ -108,19 +108,45 @@
 	status = "okay";
 };
 
-/* On-board FT6236 capacitive touch. */
+/*
+ * On-board FT6236 capacitive touch — software bit-bang I2C, NOT the RP2350
+ * hardware I2C1.
+ *
+ * The FT6236 clock-stretches while it computes touch coordinates. The RP2350
+ * DesignWare hardware I2C controller's interrupt/FIFO read path doesn't
+ * tolerate that: idle reads succeed, but the first real touch trips a
+ * controller error and the bus locks up (observed -EIO / i2c_dw "ABR and
+ * STOP", and -ETIMEDOUT after; no auto bus-recovery exists for this driver).
+ * Pimoroni's MicroPython reads the same panel fine because the pico-sdk does a
+ * polled, byte-by-byte, clock-stretch-aware read. Zephyr's gpio-i2c bit-bang
+ * driver (CONFIG_I2C_GPIO, clock-stretching enabled by default) behaves the
+ * same way, so the touch bus uses it. The hardware &i2c1 is left disabled;
+ * &i2c0 (Qw/ST) keeps using hardware I2C.
+ *
+ * GP30 = SDA, GP31 = SCL (gpio0 indices 30/31), open-drain with the RP2350
+ * internal pull-ups (the on-board touch bus has no external pull-ups).
+ */
 &i2c1 {
-	clock-frequency = <I2C_BITRATE_FAST>;
-	pinctrl-0 = <&i2c1_default>;
-	pinctrl-names = "default";
-	status = "okay";
+	status = "disabled";
+};
 
-	ft6236: ft6236@48 {
-		compatible = "focaltech,ft6146";
-		reg = <0x48>;
-		int-gpios = <&gpio0_hi 0 GPIO_ACTIVE_LOW>;
-		reset-gpios = <&gpio0_hi 10 GPIO_ACTIVE_LOW>;
+/ {
+	touch_i2c: touch-i2c {
+		compatible = "gpio-i2c";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		clock-frequency = <I2C_BITRATE_STANDARD>;
+		sda-gpios = <&gpio0 30 (GPIO_OPEN_DRAIN | GPIO_PULL_UP)>;
+		scl-gpios = <&gpio0 31 (GPIO_OPEN_DRAIN | GPIO_PULL_UP)>;
 		status = "okay";
+
+		ft6236: ft6236@48 {
+			compatible = "focaltech,ft6146";
+			reg = <0x48>;
+			int-gpios = <&gpio0_hi 0 GPIO_ACTIVE_LOW>;
+			reset-gpios = <&gpio0_hi 10 GPIO_ACTIVE_LOW>;
+			status = "okay";
+		};
 	};
 };
 
