@@ -26,21 +26,30 @@
 		};
 	};
 
-	/* I2C0: Qw/ST connector (SDA=GP40, SCL=GP41). */
+	/* I2C0: Qw/ST connector (SDA=GP40, SCL=GP41).
+	 * Qwiic/STEMMA breakouts carry their own pull-ups, but enable the
+	 * RP2350 internal pulls too so the bus is usable bare.
+	 */
 	i2c0_default: i2c0_default {
 		group1 {
 			pinmux = <I2C0_SDA_P40>, <I2C0_SCL_P41>;
 			input-enable;
 			input-schmitt-enable;
+			bias-pull-up;
 		};
 	};
 
-	/* I2C1: FT6236 capacitive touch (SDA=GP30, SCL=GP31). */
+	/* I2C1: FT6236 capacitive touch (SDA=GP30, SCL=GP31).
+	 * This is an on-board bus with no external pull-ups, so the RP2350
+	 * internal pull-ups are required (MicroPython enables them too);
+	 * without bias-pull-up every transaction NACKs (-EIO).
+	 */
 	i2c1_default: i2c1_default {
 		group1 {
 			pinmux = <I2C1_SDA_P30>, <I2C1_SCL_P31>;
 			input-enable;
 			input-schmitt-enable;
+			bias-pull-up;
 		};
 	};
 
