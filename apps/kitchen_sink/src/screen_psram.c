@@ -40,6 +40,12 @@ static void psram_render(void)
 
 	ui_begin("PSRAM", COL_AMBER);
 
+	if (sz == 0) {
+		gfx_text(8, 96, "not detected", COL_GREY, UI_BG, 2);
+		ui_footer();
+		return;
+	}
+
 	snprintf(buf, sizeof(buf), "%u MiB", (unsigned)(sz >> 20));
 	gfx_text(8, 64, buf, COL_WHITE, UI_BG, 3);
 

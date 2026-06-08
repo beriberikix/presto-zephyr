@@ -29,13 +29,19 @@ LOG_MODULE_REGISTER(screen_wifi, LOG_LEVEL_INF);
 
 enum wifi_ui_state { WS_IDLE, WS_CONNECTING, WS_ASSOC, WS_BOUND, WS_ERR };
 
+/* iface is set once (to a stable pointer) before any connect, so the callbacks
+ * can read it without synchronisation. The mutable state below is shared
+ * between the net-management callback thread and the UI thread, so it uses
+ * atomics rather than volatile.
+ */
 static struct net_if *iface;
 static struct net_mgmt_event_callback wifi_cb;
 static struct net_mgmt_event_callback ipv4_cb;
 static bool cbs_registered;
 static bool dhcp_kicked;
-static volatile enum wifi_ui_state ws_state;
-static volatile bool dirty;
+static atomic_t ws_state = ATOMIC_INIT(WS_IDLE);
+static atomic_t dirty;
+static atomic_t last_status; /* status from the last connect result; <0 = no iface */
 static char ip_str[NET_IPV4_ADDR_LEN];
 
 /* The AIROC connect blocks (whd_wifi_join), so run it off the UI thread. */
@@ -43,27 +49,32 @@ static K_THREAD_STACK_DEFINE(conn_stack, 4096);
 static struct k_thread conn_thread;
 static K_SEM_DEFINE(connect_req, 0, 1);
 static bool thread_started;
-static volatile int last_status; /* status from the last connect result */
 static int retries;
 static int64_t err_ms; /* when the current error started; 0 = not erroring */
 
 #define WIFI_MAX_RETRIES 3
 #define WIFI_RETRY_MS    2000
 
+static void set_state(enum wifi_ui_state s)
+{
+	atomic_set(&ws_state, s);
+	atomic_set(&dirty, 1);
+}
+
 static void wifi_evt(struct net_mgmt_event_callback *cb, uint64_t event, struct net_if *fc)
 {
-	ARG_UNUSED(fc);
+	if (fc != iface) {
+		return; /* not the interface this screen manages */
+	}
 
 	if (event == NET_EVENT_WIFI_CONNECT_RESULT) {
 		const struct wifi_status *st = (const struct wifi_status *)cb->info;
 
-		last_status = st->status;
-		ws_state = st->status ? WS_ERR : WS_ASSOC; /* main loop kicks DHCP */
-		dirty = true;
+		atomic_set(&last_status, st->status);
+		set_state(st->status ? WS_ERR : WS_ASSOC); /* main loop kicks DHCP */
 	} else if (event == NET_EVENT_WIFI_DISCONNECT_RESULT) {
-		ws_state = WS_IDLE;
 		dhcp_kicked = false;
-		dirty = true;
+		set_state(WS_IDLE);
 	}
 }
 
@@ -71,7 +82,7 @@ static void ipv4_evt(struct net_mgmt_event_callback *cb, uint64_t event, struct 
 {
 	ARG_UNUSED(cb);
 
-	if (event != NET_EVENT_IPV4_ADDR_ADD || fc->config.ip.ipv4 == NULL) {
+	if (event != NET_EVENT_IPV4_ADDR_ADD || fc != iface || fc->config.ip.ipv4 == NULL) {
 		return;
 	}
 	for (int i = 0; i < NET_IF_MAX_IPV4_ADDR; i++) {
@@ -80,8 +91,7 @@ static void ipv4_evt(struct net_mgmt_event_callback *cb, uint64_t event, struct 
 		}
 		net_addr_ntop(NET_AF_INET, &fc->config.ip.ipv4->unicast[i].ipv4.address.in_addr,
 			      ip_str, sizeof(ip_str));
-		ws_state = WS_BOUND;
-		dirty = true;
+		set_state(WS_BOUND);
 		return;
 	}
 }
@@ -118,7 +128,7 @@ static void wifi_conn_fn(void *a, void *b, void *c)
 static int wifi_enter(void)
 {
 	iface = net_if_get_default();
-	dirty = true;
+	atomic_set(&dirty, 1);
 
 	if (!cbs_registered) {
 		net_mgmt_init_event_callback(&wifi_cb, wifi_evt, WIFI_MGMT_EVENTS);
@@ -137,18 +147,21 @@ static int wifi_enter(void)
 
 	if (iface == NULL) {
 		LOG_WRN("no default network interface");
-		ws_state = WS_ERR;
+		atomic_set(&last_status, -1);
+		atomic_set(&ws_state, WS_ERR);
 		return -ENODEV;
 	}
 
 	/* Kick a connect off the UI thread (the AIROC join blocks). Re-entering
 	 * after an error restarts the attempt.
 	 */
-	if ((ws_state == WS_IDLE || ws_state == WS_ERR) && sizeof(SSID) - 1 > 0) {
-		ws_state = WS_CONNECTING;
+	enum wifi_ui_state s = atomic_get(&ws_state);
+
+	if ((s == WS_IDLE || s == WS_ERR) && sizeof(SSID) - 1 > 0) {
 		retries = 0;
 		err_ms = 0;
 		dhcp_kicked = false;
+		set_state(WS_CONNECTING);
 		k_sem_give(&connect_req);
 	}
 	return 0;
@@ -156,25 +169,25 @@ static int wifi_enter(void)
 
 static bool wifi_update(void)
 {
-	bool d = dirty;
-
-	dirty = false;
+	bool d = atomic_set(&dirty, 0) != 0;
+	enum wifi_ui_state s = atomic_get(&ws_state);
 
 	/* Start DHCP from the main thread once associated. */
-	if (ws_state == WS_ASSOC && !dhcp_kicked && iface != NULL) {
+	if (s == WS_ASSOC && !dhcp_kicked && iface != NULL) {
 		net_dhcpv4_start(iface);
 		dhcp_kicked = true;
 	}
 
 	/* The AIROC join can fail transiently under load — retry a few times. */
-	if (ws_state == WS_ERR && retries < WIFI_MAX_RETRIES && iface != NULL) {
+	if (s == WS_ERR && atomic_get(&last_status) >= 0 && retries < WIFI_MAX_RETRIES &&
+	    iface != NULL) {
 		if (err_ms == 0) {
 			err_ms = k_uptime_get();
 		} else if (k_uptime_get() - err_ms > WIFI_RETRY_MS) {
 			retries++;
 			err_ms = 0;
 			dhcp_kicked = false;
-			ws_state = WS_CONNECTING;
+			set_state(WS_CONNECTING);
 			k_sem_give(&connect_req);
 			d = true;
 		}
@@ -187,18 +200,23 @@ static void wifi_render(void)
 	char buf[20];
 	const char *st;
 	uint16_t c;
+	int ls = atomic_get(&last_status);
 
 	ui_begin("Wi-Fi", COL_BLUE);
 	gfx_text(8, 44, (sizeof(SSID) - 1) ? SSID : "(no SSID set)", COL_WHITE, UI_BG, 2);
 
-	switch (ws_state) {
+	switch (atomic_get(&ws_state)) {
 	case WS_CONNECTING: st = "connecting"; c = COL_AMBER; break;
 	case WS_ASSOC:      st = "getting IP"; c = COL_CYAN;  break;
 	case WS_BOUND:      st = ip_str;       c = COL_GREEN; break;
 	case WS_ERR:
-		snprintf(buf, sizeof(buf), "err %d", last_status);
-		st = buf;
 		c = COL_RED;
+		if (ls < 0) {
+			st = "no iface";
+		} else {
+			snprintf(buf, sizeof(buf), "err %d", ls);
+			st = buf;
+		}
 		break;
 	default:            st = "idle";       c = COL_GREY;  break;
 	}

@@ -14,7 +14,10 @@
 
 struct screen {
 	const char *name;
-	int  (*enter)(void);    /* activate; return <0 if the feature is absent */
+	int  (*enter)(void);    /* activate; return is informational — screens
+				 * render their own "n/a" state, the dispatcher
+				 * shows every screen regardless
+				 */
 	bool (*update)(void);   /* advance state; return true if it changed */
 	void (*render)(void);   /* paint the ENTIRE screen to the back buffer */
 	void (*leave)(void);

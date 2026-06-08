@@ -213,7 +213,7 @@ west flash --runner openocd \
 | `test_display` | Draws RGB565 colour bars + an animated square via the display API | ST7701 (board) / SDL (`native_sim`) |
 | `test_psram` | Detects the 8 MB PSRAM, walks the full device (address/pattern/walking-bit tests), allocates from the PSRAM heap | APS6404 over QMI window 1 |
 | `wifi_display` | Half-res display + Wi-Fi: associates to an AP, takes a DHCP lease, resolves a name + HTTP GET, and tracks each phase as a status colour on the panel | ST7701 + CYW43439 **together** |
-| `kitchen_sink` | Five feature screens (neopixel / button / touch / wifi / psram) rendered on the ST7701 with an 8x8 bitmap font; navigate by **touch swipe** or USER_SW. Half-res + double-buffered so the display, Wi-Fi and LEDs run together | All of the above |
+| `kitchen_sink` | Five feature screens (neopixel / button / touch / wifi / psram) rendered on the ST7701 with an 8x8 bitmap font; navigate by **touch swipe** or USER_SW. Half-res + double-buffered so the display, Wi-Fi and LEDs run together. Wi-Fi screen needs credentials — same untracked-conf pattern as `wifi_display` but with `CONFIG_KITCHEN_SINK_WIFI_SSID`/`_PSK` (else it shows "(no SSID set)") | All of the above |
 
 Each app has the same shape:
 

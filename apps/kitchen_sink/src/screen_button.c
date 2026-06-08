@@ -31,7 +31,11 @@ static int button_enter(void)
 
 static bool button_update(void)
 {
-	int v = ready ? gpio_pin_get_dt(&sw) : 0;
+	if (!ready) {
+		return false;
+	}
+
+	int v = gpio_pin_get_dt(&sw);
 
 	if (v < 0 || v == level) {
 		return false;
@@ -42,11 +46,18 @@ static bool button_update(void)
 
 static void button_render(void)
 {
+	ui_begin("Button", COL_CYAN);
+
+	if (!ready) {
+		gfx_text(8, 96, "USER_SW n/a", COL_GREY, UI_BG, 2);
+		ui_footer();
+		return;
+	}
+
 	bool pressed = level == 1;
 	uint16_t box = pressed ? COL_GREEN : COL_DKGREY;
 	const char *s = pressed ? "PRESSED" : "released";
 
-	ui_begin("Button", COL_CYAN);
 	gfx_fill_rect(40, 72, gfx_width() - 80, 88, box);
 	gfx_text((gfx_width() - gfx_text_w(s, 2)) / 2, 108, s, COL_WHITE, box, 2);
 	gfx_text(8, 184, "USER_SW = GP46", COL_WHITE, UI_BG, 1);
