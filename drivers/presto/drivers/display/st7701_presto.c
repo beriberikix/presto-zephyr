@@ -101,11 +101,34 @@ struct st7701_presto_data {
 };
 
 /*
- * Framebuffer: 480x480 RGB565 = 450 KB, in SRAM. Uninitialised (cleared at
- * probe). Single instance only.
+ * Physical panel geometry, from devicetree. The scanout always drives this
+ * many columns/lines (and the timing constants above match it).
  */
-#define FB_WIDTH  DT_INST_PROP(0, width)
-#define FB_HEIGHT DT_INST_PROP(0, height)
+#define PANEL_WIDTH  DT_INST_PROP(0, width)
+#define PANEL_HEIGHT DT_INST_PROP(0, height)
+
+BUILD_ASSERT(PANEL_WIDTH == TIMING_H_DISPLAY, "panel width must match the timing program");
+BUILD_ASSERT(PANEL_HEIGHT == DISPLAY_HEIGHT, "panel height must match the timing program");
+
+/*
+ * Framebuffer geometry. Full-res is one source pixel per panel pixel. Half-res
+ * (CONFIG_ST7701_PRESTO_HALF_RES) drives the panel from a quarter-size 240x240
+ * buffer that is pixel- and line-doubled during scanout: the parallel SM runs
+ * at half the PCLK rate (each source pixel spans two panel columns) and each
+ * source line is fetched twice (FB_ROW_SHIFT). 480x480 RGB565 = 450 KB;
+ * 240x240 = 115 KB, leaving SRAM for a concurrent networking stack.
+ */
+#if defined(CONFIG_ST7701_PRESTO_HALF_RES)
+#define FB_WIDTH     (PANEL_WIDTH / 2)
+#define FB_HEIGHT    (PANEL_HEIGHT / 2)
+#define FB_ROW_SHIFT 1
+#else
+#define FB_WIDTH     PANEL_WIDTH
+#define FB_HEIGHT    PANEL_HEIGHT
+#define FB_ROW_SHIFT 0
+#endif
+
+/* Framebuffer in SRAM. Uninitialised (cleared at probe). Single instance only. */
 static uint16_t st7701_fb[FB_WIDTH * FB_HEIGHT] __noinit __aligned(4);
 
 BUILD_ASSERT(DT_INST_PROP(0, data_pin_count) == 16,
@@ -196,15 +219,19 @@ static void __ramfunc st7701_timing_isr(const void *arg)
 	st7701_drive_timing(st7701_isr_data);
 }
 
-/* Advance the per-line DMA source address. */
+/* Advance the per-line DMA source address. display_row counts panel scanlines
+ * (always PANEL_HEIGHT of them); the source row is display_row >> FB_ROW_SHIFT,
+ * so in half-res each source line feeds two consecutive panel lines.
+ */
 static void __ramfunc st7701_start_line_xfer(struct st7701_presto_data *data)
 {
 	hw_clear_bits(&data->pio->irq, 0x1u);
 
-	if (++data->display_row >= data->height) {
+	if (++data->display_row >= PANEL_HEIGHT) {
 		data->next_line_addr = NULL;
 	} else {
-		data->next_line_addr = &data->fb[(size_t)data->width * data->display_row];
+		data->next_line_addr =
+			&data->fb[(size_t)data->width * (data->display_row >> FB_ROW_SHIFT)];
 	}
 }
 
@@ -400,10 +427,18 @@ static int st7701_pio_dma_init(const struct st7701_presto_config *cfg,
 	sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
 	sm_config_set_out_shift(&c, true, true, 32);
 	sm_config_set_in_shift(&c, false, false, 32);
+#if defined(CONFIG_ST7701_PRESTO_HALF_RES)
+	/* Run the data SM at the PCLK rate: each of the 240 source pixels is held
+	 * for two panel clocks, doubling it horizontally across two columns.
+	 */
+	sm_config_set_clkdiv(&c, (float)clk_div);
+#else
+	/* Full res: data SM at twice the PCLK rate -> one new pixel per PCLK. */
 	sm_config_set_clkdiv(&c, (float)(clk_div >> 1));
+#endif
 	pio_sm_init(pio, data->parallel_sm, data->parallel_offset, &c);
 	pio_sm_exec(pio, data->parallel_sm, pio_encode_out(pio_y, 32));
-	pio_sm_put(pio, data->parallel_sm, (cfg->width >> 1) - 1);
+	pio_sm_put(pio, data->parallel_sm, (FB_WIDTH >> 1) - 1);
 	pio_sm_set_enabled(pio, data->parallel_sm, true);
 
 	/* Timing (sync generation) SM. */
@@ -429,7 +464,7 @@ static int st7701_pio_dma_init(const struct st7701_presto_config *cfg,
 	channel_config_set_bswap(&dc, true); /* orient RGB565 halfwords for ::isr */
 	channel_config_set_chain_to(&dc, data->dma_ctrl);
 	dma_channel_configure(data->dma_data, &dc, &pio->txf[data->parallel_sm], NULL,
-			      cfg->width >> 1, false);
+			      FB_WIDTH >> 1, false);
 
 	dc = dma_channel_get_default_config(data->dma_ctrl);
 	channel_config_set_transfer_data_size(&dc, DMA_SIZE_32);
@@ -565,8 +600,8 @@ static int st7701_init(const struct device *dev)
 
 	data->pio = pio_rpi_pico_get_pio(cfg->pio_dev);
 	data->fb = st7701_fb;
-	data->width = cfg->width;
-	data->height = cfg->height;
+	data->width = FB_WIDTH;     /* source (framebuffer) geometry: equals the */
+	data->height = FB_HEIGHT;   /* panel in full-res, half it in half-res */
 	st7701_isr_data = data;
 
 	/* Command bus idle, backlight off. */
@@ -581,7 +616,7 @@ static int st7701_init(const struct device *dev)
 		k_msleep(10);
 	}
 
-	memset(data->fb, 0, (size_t)cfg->width * cfg->height * sizeof(uint16_t));
+	memset(data->fb, 0, (size_t)data->width * data->height * sizeof(uint16_t));
 
 	ret = st7701_pio_dma_init(cfg, data);
 	if (ret < 0) {
@@ -612,7 +647,8 @@ static int st7701_init(const struct device *dev)
 	k_msleep(50);
 	gpio_pin_set_dt(&cfg->backlight, 1);
 
-	LOG_INF("ST7701 Presto display ready (%ux%u RGB565)", cfg->width, cfg->height);
+	LOG_INF("ST7701 Presto display ready (%ux%u RGB565 -> %ux%u panel)",
+		data->width, data->height, PANEL_WIDTH, PANEL_HEIGHT);
 	return 0;
 }
 

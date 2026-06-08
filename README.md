@@ -17,7 +17,8 @@ Modelled on [`beriberikix/tufty2350-zephyr`](https://github.com/beriberikix/tuft
 | CYW43439 Wi-Fi (RM2) | ✅ working | `infineon,airoc-wifi` over PIO-SPI; HW-validated (firmware loads, MAC read, netif up). Opt-in via overlay; needs ≥4 KB stacks |
 | Qw/ST I2C0 (GP40/41) | ✅ working | Use for external breakouts |
 | Piezo (GP43 PWM) | ⚠️ DTS reserved | Driver not wired into an app yet |
-| Display ST7701 | ✅ working | Out-of-tree `drivers/presto` (PIO+DMA DPI scanout); HW-validated (colour bars + animated square). Single-buffered (can tear) |
+| Display ST7701 | ✅ working | Out-of-tree `drivers/presto` (PIO+DMA DPI scanout); HW-validated (colour bars + animated square). Single-buffered (can tear). Optional half-res 240×240 mode (`CONFIG_ST7701_PRESTO_HALF_RES`) pixel-doubles to the panel from a 115 KB framebuffer |
+| Wi-Fi **+** display together | ✅ working | HW-validated: with `CONFIG_ST7701_PRESTO_HALF_RES` the framebuffer drops to 115 KB, leaving SRAM for the full net stack. `wifi_display` associates + DHCP + DNS + HTTP GET with the panel rendering throughout (lease `192.168.x.y` read back over SWD). Full-res FB + Wi-Fi does **not** fit, and the framebuffer cannot scan out of PSRAM over the shared QMI bus |
 | 8 MB PSRAM (GP47 CS) | ✅ working | Out-of-tree QMI window-1 init (`drivers/presto/drivers/memc`); mapped at `0x11000000`, HW-validated, exposed via mem-attr heap |
 | microSD (GP34-39) | ❌ TODO | Wired for 4-bit SDIO; SPI mode not yet enabled |
 
@@ -46,6 +47,7 @@ Modelled on [`beriberikix/tufty2350-zephyr`](https://github.com/beriberikix/tuft
 │   ├── test_wifi/                   # CYW43439 default-iface bring-up
 │   ├── test_display/                # ST7701 colour bars + animated square (SDL on native_sim)
 │   ├── test_psram/                  # 8 MB PSRAM detect + full RW test + heap alloc
+│   ├── wifi_display/                # Wi-Fi connect + DHCP + HTTP GET, status on the panel
 │   └── kitchen_sink/                # 4-screen cycler (auto + USER_SW)
 ├── scripts/
 │   └── smoke_native_sim.sh          # Builds all apps for native_sim, runs 3 s each
@@ -143,6 +145,37 @@ cmake --build build/test_wifi
 
 The overlay flips `&airoc_wifi { status = "okay"; }`; `prj_wifi.conf` adds `CONFIG_WIFI_AIROC=y` and the CYW43439 driver Kconfigs.
 
+### Wi-Fi *and* the display together
+
+The full-res 480×480 framebuffer is ~450 KB of the 520 KB SRAM — too much to also
+fit the networking stack (a full-res + Wi-Fi build overflows RAM by ~42 KB). The
+framebuffer **cannot** be moved to PSRAM: scanning it out over the QMI (shared with
+flash code fetch) underruns and tears — hardware-confirmed, and the reason
+Pimoroni's firmware keeps it in SRAM.
+
+The solution (mirroring Pimoroni's `full_res=false`) is `CONFIG_ST7701_PRESTO_HALF_RES=y`:
+the panel is driven from a 240×240 framebuffer (115 KB, in SRAM) that is pixel- and
+line-doubled in the scanout, leaving ~335 KB free for Wi-Fi. The `wifi_display` app
+wires this together — half-res framebuffer + CYW43439 connect + DHCP + DNS + HTTP
+GET, with the panel showing the connection state (amber → blue → cyan → green):
+
+```bash
+# Put your AP credentials in an untracked conf (gitignored):
+cat > apps/wifi_display/wifi_creds.conf <<'EOF'
+CONFIG_WIFI_DISPLAY_SSID="my-network"
+CONFIG_WIFI_DISPLAY_PSK="my-password"
+EOF
+
+cmake -S apps/wifi_display -B build/wifi_display -GNinja \
+  -DBOARD=presto/rp2350b/m33 \
+  -DEXTRA_CONF_FILE="$PWD/apps/wifi_display/wifi_creds.conf" \
+  -DPython3_EXECUTABLE="$PWD/.venv/bin/python"
+cmake --build build/wifi_display
+```
+
+Half-res scans out of SRAM (the proven path), so the panel stays clean while the
+radio runs. Effective resolution is halved; panel timing/refresh is unchanged.
+
 ## Flash
 
 Hold the **BOOT** button on the Presto while plugging in USB to enter the RP2350 UF2 bootloader. The board appears as a USB drive named `RP2350`:
@@ -179,6 +212,7 @@ west flash --runner openocd \
 | `test_wifi` | Acquires the default network interface; placeholder for scan | CYW43439 over PIO-SPI |
 | `test_display` | Draws RGB565 colour bars + an animated square via the display API | ST7701 (board) / SDL (`native_sim`) |
 | `test_psram` | Detects the 8 MB PSRAM, walks the full device (address/pattern/walking-bit tests), allocates from the PSRAM heap | APS6404 over QMI window 1 |
+| `wifi_display` | Half-res display + Wi-Fi: associates to an AP, takes a DHCP lease, resolves a name + HTTP GET, and tracks each phase as a status colour on the panel | ST7701 + CYW43439 **together** |
 | `kitchen_sink` | Cycles through neopixel / button / touch / wifi "screens" every 5 s (or on USER_SW press) | All of the above |
 
 Each app has the same shape:
@@ -258,7 +292,7 @@ GPIOs are RP2350B GPIO numbers. In DTS, `&gpio0` covers GP0-31 and `&gpio0_hi` c
 
 ## Known limitations
 
-- **Display**: implemented out-of-tree in `drivers/presto` (RGB565 DPI scanout via two PIO1 SMs + a per-line DMA pair, ported from [`pimoroni/presto:drivers/st7701`](https://github.com/pimoroni/presto/tree/main/drivers/st7701)). **Hardware-validated**: PCLK/sync timing, lane→colour mapping and the COLMOD-0x66/16-lane combo confirmed on a panel. Note the scanout consumes **byte-swapped RGB565**, matching Pimoroni's PicoGraphics convention — `display_write()` takes standard little-endian RGB565 and byteswaps on the way in, but `get_framebuffer()` returns the raw byte-swapped buffer (direct writers must byteswap themselves). Single-buffered, so full-frame `display_write` can tear (a race-the-beam copy is the planned fix). The framebuffer lives in SRAM (~450 KB), leaving little room for large concurrent workloads (e.g. networking) on the same build.
+- **Display**: implemented out-of-tree in `drivers/presto` (RGB565 DPI scanout via two PIO1 SMs + a per-line DMA pair, ported from [`pimoroni/presto:drivers/st7701`](https://github.com/pimoroni/presto/tree/main/drivers/st7701)). **Hardware-validated**: PCLK/sync timing, lane→colour mapping and the COLMOD-0x66/16-lane combo confirmed on a panel. Note the scanout consumes **byte-swapped RGB565**, matching Pimoroni's PicoGraphics convention — `display_write()` takes standard little-endian RGB565 and byteswaps on the way in, but `get_framebuffer()` returns the raw byte-swapped buffer (direct writers must byteswap themselves). Single-buffered, so full-frame `display_write` can tear (a race-the-beam copy or, now that half-res frees the SRAM for a second buffer, double-buffering is the planned fix). The full-res framebuffer is ~450 KB in SRAM, leaving little room for large concurrent workloads. To run the networking stack alongside the display, `CONFIG_ST7701_PRESTO_HALF_RES=y` drives the panel from a 240×240 framebuffer (115 KB, pixel-/line-doubled in scanout) — see `wifi_display`. The framebuffer **cannot** be relocated to PSRAM: scanning it out over the QMI (shared with flash XIP) underruns and tears (hardware-confirmed, both cached and uncached aliases), which is why Pimoroni keeps it in SRAM too.
 - **PSRAM**: brought up out-of-tree in `drivers/presto/drivers/memc` (QMI window-1 init ported from the MIT-licensed MicroPython `rp2_psram.c`). The 8 MB is mapped at `0x11000000` at boot (`POST_KERNEL`, after `clk_sys` is up — same ordering as Pimoroni's firmware) and exposed as a `zephyr,memory-region` with a mem-attr heap (`CONFIG_MEM_ATTR_HEAP` → `mem_attr_heap_alloc(DT_MEM_SW_ALLOC_DMA, ...)`). The region is cacheable for CPU use; DMA producers/consumers must do XIP cache maintenance (`0x18000000`). See `apps/test_psram`.
 - **microSD**: Wired for 4-bit SDIO; this initial port leaves it disabled. SPI-mode bring-up is straightforward but not yet wired into an app.
 - **USER_SW** shares the physical button with QSPI BOOTSEL. Pressing it at reset enters the UF2 bootloader; pressing it at runtime fires an INPUT event.

@@ -36,6 +36,7 @@ apps=(
   test_touch
   test_wifi
   test_display
+  wifi_display
   kitchen_sink
 )
 
