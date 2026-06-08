@@ -224,7 +224,13 @@ zephyr_udc0: &usbd {
 	status = "okay";
 
 	ws2812_pio: ws2812_pio {
-		compatible = "worldsemi,ws2812-rpi_pico-pio";
+		/*
+		 * Presto-local fork of worldsemi,ws2812-rpi_pico-pio: it sets the
+		 * PIO GPIO base to 16 so the SM can reach GP33 (> 31), and takes the
+		 * data pin as an absolute number via out-pin. See
+		 * drivers/presto/drivers/led_strip/.
+		 */
+		compatible = "pimoroni,ws2812-presto-pio";
 		status = "okay";
 		pinctrl-0 = <&ws2812_pio2_default>;
 		pinctrl-names = "default";
@@ -232,7 +238,7 @@ zephyr_udc0: &usbd {
 
 		ws2812: ws2812 {
 			status = "okay";
-			gpios = <&gpio0_hi 1 GPIO_ACTIVE_HIGH>;
+			out-pin = <33>; /* GP33, the SK6812 data line */
 			chain-length = <7>;
 			color-mapping = <LED_COLOR_ID_GREEN
 					 LED_COLOR_ID_RED

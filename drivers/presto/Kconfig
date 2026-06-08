@@ -2,4 +2,5 @@
 # SPDX-License-Identifier: MIT
 
 rsource "drivers/display/Kconfig"
+rsource "drivers/led_strip/Kconfig"
 rsource "drivers/memc/Kconfig"

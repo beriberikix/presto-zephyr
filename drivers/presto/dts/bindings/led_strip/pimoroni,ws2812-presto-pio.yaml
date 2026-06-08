@@ -1,0 +1,55 @@
+# Copyright (c) 2026 Jonathan Beri
+# SPDX-License-Identifier: MIT
+#
+# Presto-local fork of worldsemi,ws2812-rpi_pico-pio. Identical PIO program and
+# behaviour, with two RP2350B fixes the upstream driver lacks:
+#   1. it calls pio_set_gpio_base(16) before loading the program, so the PIO can
+#      address the data pin when it is > GPIO 31 (the upstream driver leaves the
+#      base at 0, a 0-31 window that excludes GP33);
+#   2. the data pin is given as an absolute SoC GPIO number via `out-pin`, not a
+#      gpio-controller-relative cell (the Presto LED line is gpio0_hi[1] = GP33,
+#      and DT_GPIO_PIN would yield 1, the wrong pin).
+
+description: |
+  The pio node configured for a Presto WS2812/SK6812 strip.
+
+compatible: "pimoroni,ws2812-presto-pio"
+
+include: pinctrl-device.yaml
+
+properties:
+  bit-waveform:
+    type: array
+    description: |
+      Waveform ratios [T0, T1, T2] for one bit, as in
+      worldsemi,ws2812-rpi_pico-pio. WS2812/SK6812 at 800 kHz use <3 3 4>.
+
+child-binding:
+  description: |
+    A WS2812/SK6812 (compatible) LED strip on a Presto PIO state machine.
+
+  include: ws2812.yaml
+
+  properties:
+    out-pin:
+      type: int
+      required: true
+      description: |
+        Absolute SoC GPIO number of the data line (e.g. 33 for the Presto LED
+        chain). Used directly for the PIO sideset/pindir and to pick the PIO
+        GPIO base (16 when >= 32, else 0). The pad itself must be muxed to the
+        PIO function by the parent node's pinctrl.
+
+    frequency:
+      type: int
+      description: |
+        Bit rate in Hz (bits per second). WS2812/SK6812 use 800000; WS2811 uses
+        400000.
+
+    dmas:
+      type: phandle-array
+      description: A DMA channel specifier for the tx channel of this LED strip.
+
+    dma-names:
+      type: string-array
+      description: Must be `tx` for this LED strip.
