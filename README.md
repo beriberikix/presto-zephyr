@@ -18,7 +18,7 @@ Modelled on [`beriberikix/tufty2350-zephyr`](https://github.com/beriberikix/tuft
 | Qw/ST I2C0 (GP40/41) | ✅ working | Use for external breakouts |
 | Piezo (GP43 PWM) | ⚠️ DTS reserved | Driver not wired into an app yet |
 | Display ST7701 | ✅ working | Out-of-tree `drivers/presto` (PIO+DMA DPI scanout); HW-validated (colour bars + animated square). Single-buffered (can tear) |
-| 8 MB PSRAM (GP47 CS) | ❌ TODO | QMI window 1 init not exposed by Zephyr |
+| 8 MB PSRAM (GP47 CS) | ✅ working | Out-of-tree QMI window-1 init (`drivers/presto/drivers/memc`); mapped at `0x11000000`, HW-validated, exposed via mem-attr heap |
 | microSD (GP34-39) | ❌ TODO | Wired for 4-bit SDIO; SPI mode not yet enabled |
 
 ## Layout
@@ -45,6 +45,7 @@ Modelled on [`beriberikix/tufty2350-zephyr`](https://github.com/beriberikix/tuft
 │   ├── test_touch/                  # FT6236 events via INPUT subsystem
 │   ├── test_wifi/                   # CYW43439 default-iface bring-up
 │   ├── test_display/                # ST7701 colour bars + animated square (SDL on native_sim)
+│   ├── test_psram/                  # 8 MB PSRAM detect + full RW test + heap alloc
 │   └── kitchen_sink/                # 4-screen cycler (auto + USER_SW)
 ├── scripts/
 │   └── smoke_native_sim.sh          # Builds all apps for native_sim, runs 3 s each
@@ -60,7 +61,7 @@ Modelled on [`beriberikix/tufty2350-zephyr`](https://github.com/beriberikix/tuft
 |---|---|
 | MCU | RP2350B (dual Cortex-M33 @ 150 MHz, 520 KB SRAM) |
 | Flash | 16 MB QSPI (W25Q128) |
-| PSRAM | 8 MB APS6404 on dedicated CS (GP47) — *not currently initialised* |
+| PSRAM | 8 MB APS6404 on dedicated CS (GP47), mapped at `0x11000000` via QMI window 1 |
 | Display | 4″ 480×480 IPS, ST7701, 18bpp parallel RGB + 9-bit SPI cmd bus — driven by `drivers/presto` (PIO+DMA DPI scanout) |
 | Touch | FT6236 capacitive, addr 0x48, software bit-bang I2C on GP30/31 (panel clock-stretches; RP2350 HW I2C locks up) |
 | LEDs | 7× SK6812 NeoPixels, GP33 (PIO0 SM3) |
@@ -177,6 +178,7 @@ west flash --runner openocd \
 | `test_touch` | Subscribes to INPUT events from the FT6236, logs (x, y, pressed) | I2C1, INPUT subsystem |
 | `test_wifi` | Acquires the default network interface; placeholder for scan | CYW43439 over PIO-SPI |
 | `test_display` | Draws RGB565 colour bars + an animated square via the display API | ST7701 (board) / SDL (`native_sim`) |
+| `test_psram` | Detects the 8 MB PSRAM, walks the full device (address/pattern/walking-bit tests), allocates from the PSRAM heap | APS6404 over QMI window 1 |
 | `kitchen_sink` | Cycles through neopixel / button / touch / wifi "screens" every 5 s (or on USER_SW press) | All of the above |
 
 Each app has the same shape:
@@ -238,7 +240,7 @@ GPIOs are RP2350B GPIO numbers. In DTS, `&gpio0` covers GP0-31 and `&gpio0_hi` c
 | Qw/ST I2C | SDA / SCL | GP40 / GP41 | `&i2c0` |
 | Piezo audio | PWM | GP43 | *reserved* |
 | USER_SW | input | GP46 | `&user_sw` (alias `sw0`) |
-| PSRAM | CS | GP47 | *reserved* |
+| PSRAM | CS | GP47 | `&psram` (QMI CS1) |
 
 ## Troubleshooting
 
@@ -257,7 +259,7 @@ GPIOs are RP2350B GPIO numbers. In DTS, `&gpio0` covers GP0-31 and `&gpio0_hi` c
 ## Known limitations
 
 - **Display**: implemented out-of-tree in `drivers/presto` (RGB565 DPI scanout via two PIO1 SMs + a per-line DMA pair, ported from [`pimoroni/presto:drivers/st7701`](https://github.com/pimoroni/presto/tree/main/drivers/st7701)). **Hardware-validated**: PCLK/sync timing, lane→colour mapping and the COLMOD-0x66/16-lane combo confirmed on a panel. Note the scanout consumes **byte-swapped RGB565**, matching Pimoroni's PicoGraphics convention — `display_write()` takes standard little-endian RGB565 and byteswaps on the way in, but `get_framebuffer()` returns the raw byte-swapped buffer (direct writers must byteswap themselves). Single-buffered, so full-frame `display_write` can tear (a race-the-beam copy is the planned fix). The framebuffer lives in SRAM (~450 KB), leaving little room for large concurrent workloads (e.g. networking) on the same build.
-- **PSRAM**: GP47 has a dedicated PSRAM CS option on the RP2350B, but mapping the chip into the QMI window 1 XIP region requires direct register writes the Zephyr RP2350 HAL doesn't currently expose.
+- **PSRAM**: brought up out-of-tree in `drivers/presto/drivers/memc` (QMI window-1 init ported from the MIT-licensed MicroPython `rp2_psram.c`). The 8 MB is mapped at `0x11000000` at boot (`POST_KERNEL`, after `clk_sys` is up — same ordering as Pimoroni's firmware) and exposed as a `zephyr,memory-region` with a mem-attr heap (`CONFIG_MEM_ATTR_HEAP` → `mem_attr_heap_alloc(DT_MEM_SW_ALLOC_DMA, ...)`). The region is cacheable for CPU use; DMA producers/consumers must do XIP cache maintenance (`0x18000000`). See `apps/test_psram`.
 - **microSD**: Wired for 4-bit SDIO; this initial port leaves it disabled. SPI-mode bring-up is straightforward but not yet wired into an app.
 - **USER_SW** shares the physical button with QSPI BOOTSEL. Pressing it at reset enters the UF2 bootloader; pressing it at runtime fires an INPUT event.
 - **UART0 conflict** (see Troubleshooting).
@@ -268,7 +270,7 @@ GPIOs are RP2350B GPIO numbers. In DTS, `&gpio0` covers GP0-31 and `&gpio0_hi` c
 Likely next steps, roughly in order of value:
 
 1. **Display driver** — ✅ done and hardware-validated (`drivers/presto`, see `test_display`). Remaining: add a tearing-aware (race-the-beam) `display_write` and optional LVGL support.
-2. **PSRAM bring-up** — QMI window 1 init at boot to expose the 8 MB as `&psram0`.
+2. **PSRAM bring-up** — ✅ done (`drivers/presto/drivers/memc`, see `apps/test_psram`); 8 MB at `0x11000000` via a mem-attr heap.
 3. **microSD SPI block device** — enable `zephyr,sdhc-spi-slot` with CS on GP39 and mount FAT.
 4. **USB CDC ACM console** — so you don't lose stdio when the display is wired up.
 5. **Piezo audio driver** — wire GP43 into the `audio` subsystem (sound, beeps, simple synth).
