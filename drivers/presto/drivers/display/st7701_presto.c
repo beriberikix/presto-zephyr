@@ -158,6 +158,8 @@ static struct st7701_presto_data *st7701_isr_data;
 #if defined(CONFIG_ST7701_PRESTO_DOUBLE_BUFFER)
 /* Given by the end-of-frame ISR once a requested buffer swap has taken effect. */
 static K_SEM_DEFINE(st7701_flip_sem, 0, 1);
+/* Serialises st7701_presto_flip() so concurrent callers can't race the sem. */
+static K_MUTEX_DEFINE(st7701_flip_lock);
 #endif
 
 /* ------------------------------------------------------------------ */
@@ -613,9 +615,15 @@ void st7701_presto_flip(const struct device *dev)
 #if defined(CONFIG_ST7701_PRESTO_DOUBLE_BUFFER)
 	struct st7701_presto_data *data = dev->data;
 
+	/* Serialise callers: the swap is a one-shot sem handshake with the ISR,
+	 * so two threads flipping at once would race the reset/give. flip_pending
+	 * is then written by a single thread and only read/cleared by the ISR.
+	 */
+	k_mutex_lock(&st7701_flip_lock, K_FOREVER);
 	k_sem_reset(&st7701_flip_sem);
 	data->flip_pending = true;
 	k_sem_take(&st7701_flip_sem, K_FOREVER);
+	k_mutex_unlock(&st7701_flip_lock);
 #else
 	ARG_UNUSED(dev);
 #endif

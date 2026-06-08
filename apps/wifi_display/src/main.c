@@ -1,12 +1,12 @@
 /*
  * Wi-Fi + display coexistence demo for the Pimoroni Presto.
  *
- * Proves the freed-SRAM coexistence end to end: the ST7701 panel scans out a
- * framebuffer in PSRAM (boards/presto_rp2350b_m33.conf selects
- * CONFIG_ST7701_PRESTO_FB_PSRAM) while the CYW43439 stack associates to an AP,
- * takes a DHCP lease, resolves a name and does a plain-HTTP GET. The display
- * is filled with a status colour at each phase, so the panel visibly tracks
- * the network state while traffic runs:
+ * Proves the freed-SRAM coexistence end to end: the ST7701 panel is driven from
+ * a half-resolution 240x240 SRAM framebuffer (boards/presto_rp2350b_m33.conf
+ * selects CONFIG_ST7701_PRESTO_HALF_RES, leaving SRAM for the net stack) while
+ * the CYW43439 stack associates to an AP, takes a DHCP lease, resolves a name
+ * and does a plain-HTTP GET. The display is filled with a status colour at each
+ * phase, so the panel visibly tracks the network state while traffic runs:
  *
  *   amber  connecting        cyan   DHCP lease bound
  *   blue   Wi-Fi associated  green  HTTP GET succeeded
@@ -214,6 +214,11 @@ static int http_get(void)
 		       "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n"
 		       "User-Agent: presto-zephyr\r\n\r\n",
 		       path, host);
+	if (ret < 0 || ret >= (int)sizeof(req)) {
+		LOG_ERR("request too long for %s%s", host, path);
+		ret = -EINVAL;
+		goto out;
+	}
 	if (zsock_send(sock, req, ret, 0) < 0) {
 		LOG_ERR("send() failed (%d)", errno);
 		ret = -errno;
@@ -231,8 +236,10 @@ static int http_get(void)
 	/* First line is "HTTP/1.x NNN ..." */
 	if (strncmp(resp, "HTTP/1.", 7) == 0) {
 		int code = atoi(resp + 9);
+		const char *eol = strchr(resp, '\r');
+		int line_len = eol ? (int)(eol - resp) : (int)strlen(resp);
 
-		LOG_INF("HTTP response: %.*s", (int)(strchr(resp, '\r') - resp), resp);
+		LOG_INF("HTTP response: %.*s", line_len, resp);
 		ret = (code >= 200 && code < 400) ? 0 : -EIO;
 	} else {
 		LOG_ERR("unexpected response");

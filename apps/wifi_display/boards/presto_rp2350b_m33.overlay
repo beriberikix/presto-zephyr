@@ -2,8 +2,8 @@
  * SPDX-License-Identifier: MIT
  *
  * Enable the ST7701 panel (system display) and the CYW43439 radio together.
- * The framebuffer lives in PSRAM (see boards/presto_rp2350b_m33.conf), so the
- * display scanout and the Wi-Fi stack coexist in the freed SRAM.
+ * The board conf selects the half-resolution framebuffer (240x240 in SRAM), so
+ * the display scanout and the Wi-Fi stack coexist in the freed SRAM.
  */
 
 / {
