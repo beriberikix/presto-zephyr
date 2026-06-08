@@ -5,6 +5,8 @@ config PIMORONI_RP2350_PSRAM
 	bool "Pimoroni Presto APS6404 PSRAM (RP2350 QMI window 1)"
 	default y
 	depends on DT_HAS_PIMORONI_RP2350_PSRAM_ENABLED
+	select GPIO
+	select PICOSDK_USE_GPIO
 	help
 	  Bring up the 8 MB APS6404 PSRAM on QMI CS1 (GP47) at boot and map it
 	  into XIP space at 0x11000000. Ported from the MIT-licensed MicroPython

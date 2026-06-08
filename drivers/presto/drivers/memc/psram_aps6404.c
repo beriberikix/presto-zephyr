@@ -16,13 +16,14 @@
  * SPDX-License-Identifier: MIT
  */
 
+#define DT_DRV_COMPAT pimoroni_rp2350_psram
+
 #include <zephyr/init.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/toolchain.h>
 
 #include <hardware/gpio.h>
-#include <hardware/clocks.h>
 #include <hardware/sync.h>
 #include <hardware/structs/qmi.h>
 #include <hardware/structs/xip_ctrl.h>
@@ -30,10 +31,20 @@
 
 LOG_MODULE_REGISTER(psram_aps6404, CONFIG_PIMORONI_RP2350_PSRAM_LOG_LEVEL);
 
-#define PSRAM_NODE    DT_NODELABEL(psram)
-#define PSRAM_BASE    DT_REG_ADDR(PSRAM_NODE)
-#define PSRAM_DT_SIZE DT_REG_SIZE(PSRAM_NODE)
-#define PSRAM_CS_PIN  DT_PROP(PSRAM_NODE, cs_pin)
+BUILD_ASSERT(DT_NUM_INST_STATUS_OKAY(DT_DRV_COMPAT) <= 1, "only one PSRAM instance supported");
+
+#define PSRAM_BASE    DT_INST_REG_ADDR(0)
+#define PSRAM_DT_SIZE DT_INST_REG_SIZE(0)
+#define PSRAM_CS_PIN  DT_INST_PROP(0, cs_pin)
+
+/*
+ * clk_sys feeds the QMI; derive the timing from it. Use the devicetree
+ * clk_sys frequency rather than pico-sdk's clock_get_hz(clk_sys): Zephyr's
+ * clock_control programs the PLLs itself, so the pico-sdk clock state is not
+ * reliably populated (same reason the ST7701 driver uses the DT value).
+ */
+#define PSRAM_SYS_CLK_HZ DT_PROP(DT_NODELABEL(clk_sys), clock_frequency)
+BUILD_ASSERT(PSRAM_SYS_CLK_HZ > 0, "clk_sys frequency unknown");
 
 /* APS6404 max QSPI clock. */
 #define APS6404_MAX_FREQ_HZ 133000000
@@ -144,7 +155,7 @@ static size_t __ramfunc psram_setup(unsigned int cs_pin)
 	 * rxdelay margin above 100 MHz; bound CS-assert to <= 8 us (tCEM) and
 	 * CS-deselect to >= 18 ns (tCPH).
 	 */
-	const int clock_hz = clock_get_hz(clk_sys);
+	const int clock_hz = PSRAM_SYS_CLK_HZ;
 	int divisor = (clock_hz + APS6404_MAX_FREQ_HZ - 1) / APS6404_MAX_FREQ_HZ;
 
 	if (divisor == 1 && clock_hz > 100000000) {
