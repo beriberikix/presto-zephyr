@@ -26,7 +26,7 @@
  *   Touch (FT6236, I2C):
  *     GP30 SDA, GP31 SCL, GP32 INT, GP42 RESET, addr 0x48
  *
- *   LEDs (7x SK6812 NeoPixels, PIO0 SM3):
+ *   LEDs (7x SK6812 NeoPixels, on PIO2 here; PIO0 SM3 in Pimoroni's firmware):
  *     GP33 LED_DATA
  *
  *   microSD (4-bit SDIO capable; SPI mode pin layout):
@@ -214,11 +214,10 @@ zephyr_udc0: &usbd {
 };
 
 /*
- * 7x SK6812 ambient lighting chain, GRB order, GP33. Placed on PIO2 (not PIO0)
- * so it coexists with the CYW43439 Wi-Fi PIO-SPI on PIO0: the
- * ws2812-rpi_pico-pio driver assumes its program loads at PIO offset 0, which
- * only holds on a PIO the radio's programs are not already occupying. Display
- * uses PIO1, so PIO2 is the free block.
+ * 7x SK6812 ambient lighting chain, GRB order, GP33. On PIO2 because PIO0 hosts
+ * the CYW43439 Wi-Fi PIO-SPI and PIO1 the display, so PIO2 is the free block —
+ * all three coexist. The pimoroni,ws2812-presto-pio fork (see below) drives the
+ * GP33 data line, which is >GP31 and out of reach of the upstream PIO driver.
  */
 &pio2 {
 	status = "okay";
