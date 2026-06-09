@@ -64,8 +64,8 @@ for app in "${apps[@]}"; do
     -DPython3_EXECUTABLE="${PYTHON_EXECUTABLE}"
   )
 
-  native_conf="${app_dir}/boards/native_sim.conf"
-  native_overlay="${app_dir}/boards/native_sim.overlay"
+  native_conf="${app_dir}/boards/native_sim_native_64.conf"
+  native_overlay="${app_dir}/boards/native_sim_native_64.overlay"
 
   if [[ -f "${native_conf}" ]]; then
     cmake_args+=("-DEXTRA_CONF_FILE=${native_conf}")

@@ -5,7 +5,7 @@
  *   - presto/rp2350b/m33 : the ST7701 panel (CONFIG_ST7701_PRESTO).
  *   - native_sim         : the SDL display emulator (a window on the host),
  *                          so the drawing logic can be exercised without
- *                          hardware. See boards/native_sim.conf.
+ *                          hardware. See boards/native_sim_native_64.conf.
  *
  * Draws eight vertical colour bars and animates a white square across them,
  * using only the generic display_write() API.

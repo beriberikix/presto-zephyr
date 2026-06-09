@@ -2,7 +2,7 @@
 
 Out-of-tree [Zephyr RTOS](https://zephyrproject.org/) board support and example apps for the [Pimoroni Presto](https://shop.pimoroni.com/products/presto): a 4-inch 480×480 touchscreen with RP2350B, 8 MB PSRAM, RM2/CYW43439 Wi-Fi/BT, 7× SK6812 RGB LEDs, microSD, and piezo speaker.
 
-> **Display status: hardware-validated.** The Presto's ST7701 panel runs in 18bpp parallel-RGB (DPI) mode. Upstream Zephyr has no driver for this, so this repo ships an out-of-tree one (`drivers/presto/`) ported from the MIT-licensed Pimoroni firmware: two RP2350 PIO1 state machines (pixel data + sync timing) plus a DMA pair stream a 480×480 RGB565 framebuffer out of SRAM. It builds clean, runs on `native_sim` via Zephyr's SDL display, and has been **confirmed on real hardware** (`test_display` colour bars + animated square render correctly over SWD). Everything else — NeoPixels, capacitive touch, Wi-Fi, microSD, piezo, user button — is brought up with stock Zephyr drivers.
+> **Display status: hardware-validated.** The Presto's ST7701 panel runs in 18bpp parallel-RGB (DPI) mode. Upstream Zephyr has no driver for this, so this repo ships an out-of-tree one (`drivers/presto/`) ported from the MIT-licensed Pimoroni firmware: two RP2350 PIO1 state machines (pixel data + sync timing) plus a DMA pair stream a 480×480 RGB565 framebuffer out of SRAM. It builds clean, runs on `native_sim` via Zephyr's SDL display, and has been **confirmed on real hardware** (`test_display` colour bars + animated square render correctly over SWD). The 7× SK6812 NeoPixels likewise need an out-of-tree driver (a `drivers/presto` fork of the WS2812 PIO driver, for the RP2350B >GP31 data pin) and are HW-validated. The rest — capacitive touch, Wi-Fi, microSD, piezo, user button — is brought up with stock Zephyr drivers.
 
 Modelled on [`beriberikix/tufty2350-zephyr`](https://github.com/beriberikix/tufty2350-zephyr): same layout, same Zephyr revision pin (v4.4.0), same UF2-drop flash workflow.
 
@@ -12,7 +12,7 @@ Modelled on [`beriberikix/tufty2350-zephyr`](https://github.com/beriberikix/tuft
 |---|---|---|
 | RP2350B SoC | ✅ working | UF2 boots, GPIO/I2C/PIO/DMA/PWM all initialise |
 | USER_SW (GP46) | ✅ working | Shared with BOOTSEL; usable as runtime input |
-| 7× SK6812 NeoPixels (GP33) | ✅ working | `worldsemi,ws2812-rpi_pico-pio` on PIO2 (PIO0 hosts Wi-Fi, PIO1 the display) so all three coexist |
+| 7× SK6812 NeoPixels (GP33) | ✅ working | HW-validated. `pimoroni,ws2812-presto-pio` (a `drivers/presto` fork of the upstream WS2812 PIO driver) on PIO2 — PIO0 hosts Wi-Fi, PIO1 the display, so all three coexist. The fork adds the RP2350B fixes the upstream driver lacks for a data pin >GP31 (`pio_set_gpio_base(16)` + an absolute `out-pin`) |
 | FT6236 cap touch | ✅ working | HW-validated (x/y down/up events). On a **software bit-bang I2C** bus (`gpio-i2c`, GP30/31): the panel clock-stretches and the RP2350 hardware I2C locks up on it; bit-bang tolerates it, like Pimoroni's MicroPython |
 | CYW43439 Wi-Fi (RM2) | ✅ working | `infineon,airoc-wifi` over PIO-SPI; HW-validated (firmware loads, MAC read, netif up). Opt-in via overlay; needs ≥4 KB stacks |
 | Qw/ST I2C0 (GP40/41) | ✅ working | Use for external breakouts |
@@ -39,7 +39,10 @@ Modelled on [`beriberikix/tufty2350-zephyr`](https://github.com/beriberikix/tuft
 ├── drivers/presto/                  # Out-of-tree Zephyr module
 │   ├── zephyr/module.yml            # Registers the module (cmake + kconfig + dts_root)
 │   ├── dts/bindings/display/        # pimoroni,st7701-presto.yaml
-│   └── drivers/display/             # ST7701 DPI driver + ported PIO programs (.pio.h)
+│   ├── dts/bindings/led_strip/      # pimoroni,ws2812-presto-pio.yaml
+│   ├── drivers/display/             # ST7701 DPI driver + ported PIO programs (.pio.h)
+│   ├── drivers/led_strip/           # WS2812 PIO driver fork (RP2350B GP33 fixes)
+│   └── drivers/memc/                # APS6404 PSRAM driver
 ├── apps/
 │   ├── test_leds/                   # 7× SK6812 colour cycle via PIO
 │   ├── test_buttons/                # USER_SW edge logger
@@ -222,9 +225,9 @@ apps/<name>/
 ├── CMakeLists.txt              # Adds BOARD_ROOT, includes Zephyr, lists sources
 ├── prj.conf                    # Base Kconfig
 ├── boards/
-│   ├── native_sim.conf         # Disables hardware drivers for emulation
-│   ├── native_sim.overlay      # Stubs (sw0 button on gpio_emul, etc.)
-│   └── presto_rp2350b_m33.overlay   # Hardware-only opt-ins (e.g. Wi-Fi)
+│   ├── native_sim_native_64.conf      # Disables hardware drivers for emulation
+│   ├── native_sim_native_64.overlay   # Stubs (sw0 button on gpio_emul, etc.)
+│   └── presto_rp2350b_m33.overlay      # Hardware-only opt-ins (e.g. Wi-Fi)
 └── src/main.c
 ```
 
@@ -288,7 +291,7 @@ GPIOs are RP2350B GPIO numbers. In DTS, `&gpio0` covers GP0-31 and `&gpio0_hi` c
 
 **`west update` is slow** — that's fetching ~700 MB of Zephyr modules including HALs and tooling. Subsequent updates are incremental.
 
-**LED strip builds but doesn't light up** — verify the chain length matches the hardware (7 on a stock Presto) and that the GPIO is in PIO function mode (handled by `&ws2812_pio0_default` pinctrl group).
+**LED strip builds but doesn't light up** — verify the chain length matches the hardware (7 on a stock Presto) and that the GPIO is in PIO function mode (handled by the `&ws2812_pio2_default` pinctrl group). On RP2350B the data line is GP33 (>GP31), which the stock `worldsemi,ws2812-rpi_pico-pio` driver can't reach; the board uses the `pimoroni,ws2812-presto-pio` fork (`out-pin = <33>`, `pio_set_gpio_base(16)`) instead.
 
 ## Known limitations
 
