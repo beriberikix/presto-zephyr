@@ -1,0 +1,24 @@
+/*
+ * Enable the ST7701 panel as the system display (see apps/test_display for
+ * the GP1/UART0-RX sharing note) and route FT6236 touch events into LVGL.
+ *
+ * The FT6236 reports raw 0-480 coordinates while the half-res LVGL display
+ * is 240x240; main.c wraps the indev read callback to divide them by 2
+ * (neither the LVGL pointer glue nor Zephyr's common touchscreen properties
+ * support scaling, only axis swap/invert).
+ */
+
+/ {
+	chosen {
+		zephyr,display = &st7701;
+	};
+
+	lvgl_pointer: lvgl-pointer {
+		compatible = "zephyr,lvgl-pointer-input";
+		input = <&ft6236>;
+	};
+};
+
+&st7701 {
+	status = "okay";
+};
