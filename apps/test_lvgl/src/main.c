@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: MIT
  *
  * LVGL proof-of-concept: a themed label + button + slider, driven by touch.
- * On the Presto the LVGL object heap lives in PSRAM (see the board .conf)
- * and the FT6236's raw 0-480 coordinates are halved onto the 240x240
- * half-res display by wrapping the indev read callback.
+ * On the Presto the LVGL object heap lives in PSRAM (see the board .conf) and
+ * the FT6236's panel-space touch coordinates are halved onto the 240x240
+ * half-res display by the pimoroni,input-scaler node (see the board overlay).
  */
 
 #include <zephyr/device.h>
@@ -14,7 +14,6 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <lvgl.h>
-#include <lvgl_input_device.h>
 
 LOG_MODULE_REGISTER(test_lvgl, LOG_LEVEL_INF);
 
@@ -28,45 +27,6 @@ static void btn_event_cb(lv_event_t *e)
 	lv_label_set_text_fmt(count_label, "Count: %u", count);
 }
 
-#ifdef CONFIG_ST7701_PRESTO_HALF_RES
-/*
- * The touch controller reports panel-space 0-480 coordinates; the LVGL
- * display is the 240x240 half-res framebuffer. Neither the LVGL pointer
- * glue nor the input subsystem can scale, so chain the glue's read
- * callback and halve the point it produced. A raw 480 halves to 240,
- * one past the last column, so clamp to the display bounds.
- */
-static lv_indev_read_cb_t orig_read_cb;
-
-static void scaled_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
-{
-	lv_display_t *disp = lv_indev_get_display(indev);
-	int32_t max_x = lv_display_get_horizontal_resolution(disp) - 1;
-	int32_t max_y = lv_display_get_vertical_resolution(disp) - 1;
-
-	orig_read_cb(indev, data);
-	data->point.x = LV_CLAMP(0, data->point.x / 2, max_x);
-	data->point.y = LV_CLAMP(0, data->point.y / 2, max_y);
-}
-
-static void install_touch_scaler(void)
-{
-	lv_indev_t *indev = lvgl_input_get_indev(
-		DEVICE_DT_GET(DT_NODELABEL(lvgl_pointer)));
-
-	if (indev == NULL) {
-		LOG_ERR("LVGL pointer indev not found");
-		return;
-	}
-	orig_read_cb = lv_indev_get_read_cb(indev);
-	lv_indev_set_read_cb(indev, scaled_read_cb);
-}
-#else
-static void install_touch_scaler(void)
-{
-}
-#endif
-
 int main(void)
 {
 	const struct device *display = DEVICE_DT_GET(DT_CHOSEN(zephyr_display));
@@ -76,14 +36,22 @@ int main(void)
 		return 0;
 	}
 
-	install_touch_scaler();
+	/*
+	 * Fixed layout: stop the screen from scrolling. Otherwise a press-drag
+	 * (e.g. on the slider) is also taken as a scroll gesture and the whole
+	 * screen elastically scrolls and bounces back.
+	 */
+	lv_obj_t *scr = lv_screen_active();
 
-	lv_obj_t *title = lv_label_create(lv_screen_active());
+	lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+	lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_OFF);
+
+	lv_obj_t *title = lv_label_create(scr);
 
 	lv_label_set_text(title, "Presto LVGL PoC");
 	lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
 
-	lv_obj_t *btn = lv_button_create(lv_screen_active());
+	lv_obj_t *btn = lv_button_create(scr);
 
 	lv_obj_align(btn, LV_ALIGN_CENTER, 0, -20);
 	lv_obj_add_event_cb(btn, btn_event_cb, LV_EVENT_CLICKED, NULL);
@@ -92,11 +60,11 @@ int main(void)
 
 	lv_label_set_text(btn_label, "Tap me");
 
-	count_label = lv_label_create(lv_screen_active());
+	count_label = lv_label_create(scr);
 	lv_label_set_text(count_label, "Count: 0");
 	lv_obj_align(count_label, LV_ALIGN_CENTER, 0, 30);
 
-	lv_obj_t *slider = lv_slider_create(lv_screen_active());
+	lv_obj_t *slider = lv_slider_create(scr);
 
 	lv_obj_set_width(slider, lv_pct(70));
 	lv_obj_align(slider, LV_ALIGN_BOTTOM_MID, 0, -24);

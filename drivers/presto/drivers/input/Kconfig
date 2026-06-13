@@ -1,0 +1,14 @@
+# Copyright (c) 2026 Jonathan Beri
+# SPDX-License-Identifier: MIT
+
+config INPUT_PIMORONI_SCALER
+	bool "Pimoroni input coordinate scaler"
+	default y
+	depends on DT_HAS_PIMORONI_INPUT_SCALER_ENABLED
+	depends on INPUT
+	help
+	  Pseudo input device that subscribes to absolute-axis events from another
+	  input device and re-reports them scaled by num/denom, passing other
+	  events through unchanged. Used to map the Presto's FT6236 panel-space
+	  (~0-480) touch coordinates onto a half-resolution 240x240 display before
+	  the LVGL pointer glue clamps them to the display bounds.
