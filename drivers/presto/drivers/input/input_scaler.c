@@ -36,7 +36,9 @@ static void input_scaler_cb(struct input_event *evt, void *user_data)
 
 	if (evt->type == INPUT_EV_ABS &&
 	    (evt->code == INPUT_ABS_X || evt->code == INPUT_ABS_Y)) {
-		int32_t scaled = evt->value * cfg->scale_num / cfg->scale_denom;
+		/* int64 intermediate: avoid overflow for arbitrary int32 inputs. */
+		int32_t scaled = (int32_t)((int64_t)evt->value * cfg->scale_num /
+					   cfg->scale_denom);
 
 		input_report_abs(dev, evt->code, scaled, evt->sync, K_FOREVER);
 	} else {

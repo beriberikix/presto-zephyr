@@ -9,6 +9,8 @@ description: |
 
 compatible: "pimoroni,input-scaler"
 
+include: base.yaml
+
 properties:
   input:
     type: phandle
