@@ -33,15 +33,20 @@ static void btn_event_cb(lv_event_t *e)
  * The touch controller reports panel-space 0-480 coordinates; the LVGL
  * display is the 240x240 half-res framebuffer. Neither the LVGL pointer
  * glue nor the input subsystem can scale, so chain the glue's read
- * callback and halve the point it produced.
+ * callback and halve the point it produced. A raw 480 halves to 240,
+ * one past the last column, so clamp to the display bounds.
  */
 static lv_indev_read_cb_t orig_read_cb;
 
 static void scaled_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
 {
+	lv_display_t *disp = lv_indev_get_display(indev);
+	int32_t max_x = lv_display_get_horizontal_resolution(disp) - 1;
+	int32_t max_y = lv_display_get_vertical_resolution(disp) - 1;
+
 	orig_read_cb(indev, data);
-	data->point.x /= 2;
-	data->point.y /= 2;
+	data->point.x = LV_CLAMP(0, data->point.x / 2, max_x);
+	data->point.y = LV_CLAMP(0, data->point.y / 2, max_y);
 }
 
 static void install_touch_scaler(void)
