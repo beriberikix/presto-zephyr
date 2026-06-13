@@ -1,0 +1,26 @@
+# Copyright (c) 2026 Jonathan Beri
+# SPDX-License-Identifier: MIT
+
+description: |
+  Input coordinate scaler pseudo-device. Subscribes to input events from the
+  device referenced by 'input' and re-reports them as its own, with absolute
+  X/Y values multiplied by scale-num and divided by scale-denom. All other
+  events (e.g. INPUT_BTN_TOUCH) are passed through unchanged.
+
+compatible: "pimoroni,input-scaler"
+
+include: base.yaml
+
+properties:
+  input:
+    type: phandle
+    required: true
+    description: Source input device whose events are scaled.
+  scale-num:
+    type: int
+    default: 1
+    description: Numerator of the coordinate scale factor.
+  scale-denom:
+    type: int
+    default: 1
+    description: Denominator of the coordinate scale factor (must be > 0).

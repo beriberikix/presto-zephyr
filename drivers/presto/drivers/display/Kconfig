@@ -53,4 +53,12 @@ config ST7701_PRESTO_DOUBLE_BUFFER
 	  in practice it pairs with CONFIG_ST7701_PRESTO_HALF_RES (two 240x240
 	  buffers = 230 KB; two full-res buffers do not fit and fail a BUILD_ASSERT).
 
+	  NOTE: this suits apps that regenerate the whole frame and then present
+	  once (e.g. the gfx-based apps). It is NOT a good fit for a partial-update
+	  GUI like LVGL on this panel: keeping the back buffer current every frame
+	  means either copying from the live front buffer (CPU reads of that SRAM
+	  stall the scanout DMA and flash garbage lines) or a full-screen redraw
+	  every frame (congests the scanout pipeline). LVGL renders cleanly
+	  single-buffered here, where only the small dirty regions are written.
+
 endif # ST7701_PRESTO
