@@ -1,0 +1,17 @@
+/*
+ * Match the Presto's half-res 240x240 geometry and feed SDL mouse/touch
+ * events into LVGL. SDL reports display-space coordinates already, so no
+ * scaling wrapper is needed here.
+ */
+
+/ {
+	lvgl_pointer: lvgl-pointer {
+		compatible = "zephyr,lvgl-pointer-input";
+		input = <&input_sdl_touch>;
+	};
+};
+
+&sdl_dc {
+	width = <240>;
+	height = <240>;
+};
