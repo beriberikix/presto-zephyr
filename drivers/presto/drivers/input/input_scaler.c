@@ -34,16 +34,35 @@ static void input_scaler_cb(struct input_event *evt, void *user_data)
 	const struct device *dev = user_data;
 	const struct input_scaler_config *cfg = dev->config;
 
+	/*
+	 * K_NO_WAIT, and it has to be.
+	 *
+	 * With CONFIG_INPUT_MODE_THREAD there is one queue and one thread
+	 * draining it, and this callback runs on that thread. Re-reporting the
+	 * scaled event pushes back into the very queue we were dispatched from,
+	 * so blocking here waits for space that only this thread can make:
+	 * once the queue fills, the input thread deadlocks against itself and no
+	 * pointer event is ever delivered again. The producer -- a touch driver
+	 * reporting from the system workqueue, which cannot block -- then drops
+	 * every subsequent event and logs it, forever. The board stays up and
+	 * stops responding, which reads as a hang rather than as an input fault.
+	 *
+	 * Dropping is the right behaviour anyway: this is a pointer, so a newer
+	 * position supersedes an older one and losing an intermediate sample
+	 * under load costs nothing. Note the queue is shared, so it holds both
+	 * the incoming event and the scaled one -- a scaler halves the effective
+	 * depth, which is worth raising CONFIG_INPUT_QUEUE_MAX_MSGS for.
+	 */
 	if (evt->type == INPUT_EV_ABS &&
 	    (evt->code == INPUT_ABS_X || evt->code == INPUT_ABS_Y)) {
 		/* int64 intermediate: avoid overflow for arbitrary int32 inputs. */
 		int32_t scaled = (int32_t)((int64_t)evt->value * cfg->scale_num /
 					   cfg->scale_denom);
 
-		input_report_abs(dev, evt->code, scaled, evt->sync, K_FOREVER);
+		input_report_abs(dev, evt->code, scaled, evt->sync, K_NO_WAIT);
 	} else {
 		/* Pass everything else (notably INPUT_BTN_TOUCH) through as-is. */
-		input_report(dev, evt->type, evt->code, evt->value, evt->sync, K_FOREVER);
+		input_report(dev, evt->type, evt->code, evt->value, evt->sync, K_NO_WAIT);
 	}
 }
 
