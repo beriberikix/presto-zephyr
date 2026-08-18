@@ -1,0 +1,22 @@
+/*
+ * Turn on the microSD slot.
+ *
+ * The board's presto.dtsi describes the whole thing -- SPI0 pinctrl, the
+ * sdhc-spi-slot, the GP39 chip select and the "SD" disk -- and leaves every
+ * level disabled. All three have to be enabled explicitly: Zephyr decides a
+ * node's status without looking at its parent, so enabling only the bus leaves
+ * two dangling drivers and enabling only the slot builds a driver whose bus
+ * does not exist.
+ */
+
+&spi0 {
+	status = "okay";
+};
+
+&sdhc0 {
+	status = "okay";
+};
+
+&sdmmc0 {
+	status = "okay";
+};
