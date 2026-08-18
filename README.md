@@ -20,7 +20,7 @@ Modelled on [`beriberikix/tufty2350-zephyr`](https://github.com/beriberikix/tuft
 | Display ST7701 | ✅ working | Out-of-tree `drivers/presto` (PIO+DMA DPI scanout); HW-validated (colour bars + animated square). Single-buffered (can tear). Optional half-res 240×240 mode (`CONFIG_ST7701_PRESTO_HALF_RES`) pixel-doubles to the panel from a 115 KB framebuffer |
 | Wi-Fi **+** display together | ✅ working | HW-validated: with `CONFIG_ST7701_PRESTO_HALF_RES` the framebuffer drops to 115 KB, leaving SRAM for the full net stack. `wifi_display` associates + DHCP + DNS + HTTP GET with the panel rendering throughout (lease `192.168.x.y` read back over SWD). Full-res FB + Wi-Fi does **not** fit, and the framebuffer cannot scan out of PSRAM over the shared QMI bus |
 | 8 MB PSRAM (GP47 CS) | ✅ working | Out-of-tree QMI window-1 init (`drivers/presto/drivers/memc`); mapped at `0x11000000`, HW-validated, exposed via mem-attr heap |
-| microSD (GP34-39) | ✅ working | HW-validated for **read**: card detected, FAT mounted, root listed. Driven in SPI mode on the hardware SPI0 controller (SCLK=GP34, MOSI=GP35, MISO=GP36) with the card's DAT3 (GP39) as a GPIO chip select. Write is implemented and exercised by `test_sdcard` but not yet confirmed on hardware. Disabled by default; see `apps/test_sdcard` |
+| microSD (GP34-39) | ✅ working | HW-validated end to end: card detected, FAT mounted, directory listed, file written and read back. Driven in SPI mode on the hardware SPI0 controller (SCLK=GP34, MOSI=GP35, MISO=GP36) with the card's DAT3 (GP39) as a GPIO chip select, at 24 MHz. Disabled by default; see `apps/test_sdcard` |
 
 ## Layout
 
@@ -311,7 +311,7 @@ Likely next steps, roughly in order of value:
 
 1. **Display driver** — ✅ done and hardware-validated (`drivers/presto`, see `test_display`), including a half-res mode and tear-free double-buffering (`st7701_presto_flip`). Remaining: optional LVGL support.
 2. **PSRAM bring-up** — ✅ done (`drivers/presto/drivers/memc`, see `apps/test_psram`); 8 MB at `0x11000000` via a mem-attr heap.
-3. **microSD SPI block device** — ✅ done (`apps/test_sdcard`); read path HW-validated, write path still to confirm.
+3. **microSD SPI block device** — ✅ done and hardware-validated (`apps/test_sdcard`), read and write.
 4. **USB CDC ACM console** — so you don't lose stdio when the display is wired up.
 5. **Piezo audio driver** — wire GP43 into the `audio` subsystem (sound, beeps, simple synth).
 

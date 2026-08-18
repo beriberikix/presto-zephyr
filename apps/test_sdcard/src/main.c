@@ -258,6 +258,25 @@ static int roundtrip_file(void)
 	return 0;
 }
 
+/* Release the reference disk_access_init() took.
+ *
+ * disk_access_init() is reference counted: with a nonzero count it increments
+ * and returns success without touching the hardware. So a second run of this
+ * test would "succeed" against the *first* card's cached geometry while the
+ * card actually in the slot was never initialised -- which is exactly what a
+ * hot-swap looks like, and it reports the old card's size next to timeouts from
+ * the new one. Balance every init with a deinit so each run really does start
+ * from CMD0.
+ */
+static void release_disk(void)
+{
+	int ret = disk_access_ioctl(DISK_NAME, DISK_IOCTL_CTRL_DEINIT, NULL);
+
+	if (ret != 0 && ret != -ENOTSUP) {
+		LOG_WRN("disk deinit failed (%d); a re-run may see stale state", ret);
+	}
+}
+
 static void run(void)
 {
 	int ret;
@@ -274,21 +293,18 @@ static void run(void)
 		LOG_ERR("mount %s failed (%d) -- the card answered, so it most "
 			"likely holds no FAT filesystem",
 			MOUNT_ROOT, ret);
+		release_disk();
 		return;
 	}
 
 	LOG_INF("mounted %s", MOUNT_ROOT);
 
-	if (list_root() != 0) {
-		goto out;
-	}
-	if (roundtrip_file() != 0) {
-		goto out;
+	if (list_root() == 0 && roundtrip_file() == 0) {
+		LOG_INF("microSD: all checks passed");
 	}
 
-	LOG_INF("microSD: all checks passed");
-out:
 	fs_unmount(&mp);
+	release_disk();
 }
 
 #else /* !CONFIG_DISK_DRIVER_SDMMC */
