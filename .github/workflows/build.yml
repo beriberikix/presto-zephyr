@@ -86,6 +86,10 @@ jobs:
       - name: Smoke every app on native_sim
         working-directory: presto-zephyr
         env:
+          # The smoke script insists on ZEPHYR_BASE and the setup action does
+          # not export it to later steps. github.workspace is the west topdir
+          # here, because the checkout went into a subdirectory.
+          ZEPHYR_BASE: ${{ github.workspace }}/zephyr
           PYTHON_EXECUTABLE: python3
           SDL_VIDEODRIVER: offscreen
         run: scripts/smoke_native_sim.sh

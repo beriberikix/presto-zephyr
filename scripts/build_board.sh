@@ -34,10 +34,19 @@ BOARD="${BOARD:-presto/rp2350b/m33}"
 OUT="${OUT:-$ROOT_DIR/build/ci}"
 mkdir -p "$OUT" || exit 250
 
-# Wi-Fi needs blobs fetched (west blobs fetch hal_infineon) and is off in the
-# base config of every app anyway, so the default set is what builds from a
-# clean checkout. Override PRESTO_APPS to add the rest.
-DEFAULT_APPS="test_leds test_buttons test_touch test_display test_lvgl test_psram test_sdcard test_wifi"
+# The default set is what builds from a clean checkout with no extra fetching.
+#
+# The three Wi-Fi apps (test_wifi, wifi_display, kitchen_sink) are not in it:
+# each auto-applies a boards/presto_rp2350b_m33.overlay that enables &airoc_wifi,
+# which needs `west blobs fetch hal_infineon` before it will configure, let alone
+# link. Their application code is still covered -- smoke_native_sim.sh builds all
+# three, with Wi-Fi disabled by the native_sim board config -- so what is missing
+# here is specifically the CYW43439-on-hardware build.
+#
+# To include them:  west blobs fetch hal_infineon
+#                   PRESTO_APPS="$DEFAULT_APPS test_wifi wifi_display kitchen_sink" \
+#                       scripts/build_board.sh
+DEFAULT_APPS="test_leds test_buttons test_touch test_display test_lvgl test_psram test_sdcard"
 read -r -a apps <<<"${PRESTO_APPS:-$DEFAULT_APPS}"
 
 failed=0
