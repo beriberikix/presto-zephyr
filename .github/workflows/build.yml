@@ -1,0 +1,95 @@
+# CI for the Presto board support.
+#
+# Two things it is actually for, beyond "does it compile":
+#
+#   - `git clone && west init -l . && west update` is what the README tells a
+#     stranger to run, and a workspace that has only ever been created by hand
+#     drifts from it silently. This job starts from nothing every time.
+#   - the checks live in scripts/, not here, so the machine that has to fix a
+#     failure can reproduce it with one command. Anything expressible only in
+#     YAML is glue, not a check.
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  board:
+    name: presto/rp2350b/m33
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      # Into a subdirectory, because this repo is the manifest repository and
+      # its west.yml says `self: path: presto-zephyr`. west init -l wants the
+      # manifest repo at that path relative to the workspace root.
+      - name: Check out into the workspace
+        uses: actions/checkout@v4
+        with:
+          path: presto-zephyr
+
+      - name: Set up west, the workspace and the Zephyr SDK
+        uses: zephyrproject-rtos/action-zephyr-setup@v1
+        with:
+          app-path: presto-zephyr
+          # RP2350B is Cortex-M33.
+          toolchains: arm-zephyr-eabi
+          sdk-version: auto
+
+      - name: Report what we are building against
+        working-directory: presto-zephyr
+        run: |
+          west --version
+          echo "zephyr pinned at $(git -C ../zephyr describe --tags --always)"
+
+      - name: Build every app for the board
+        working-directory: presto-zephyr
+        run: scripts/build_board.sh
+
+      - name: Keep the build logs, whatever happened
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: board-build-logs
+          path: presto-zephyr/build/ci/*.log
+          if-no-files-found: warn
+
+  native_sim:
+    name: native_sim
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out into the workspace
+        uses: actions/checkout@v4
+        with:
+          path: presto-zephyr
+
+      - name: Set up west, the workspace and the Zephyr SDK
+        uses: zephyrproject-rtos/action-zephyr-setup@v1
+        with:
+          app-path: presto-zephyr
+          toolchains: x86_64-zephyr-elf
+          sdk-version: auto
+
+      # The display apps render through Zephyr's SDL display emulator on
+      # native_sim. Without this they fail to configure rather than to run.
+      - name: SDL, for the emulated display
+        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev
+
+      # Builds every app for native_sim and runs each one briefly, headless.
+      # Catches devicetree and Kconfig breakage without a board attached --
+      # note this exercises the app layer, not the PIO/DMA display driver.
+      - name: Smoke every app on native_sim
+        working-directory: presto-zephyr
+        env:
+          # The smoke script insists on ZEPHYR_BASE and the setup action does
+          # not export it to later steps. github.workspace is the west topdir
+          # here, because the checkout went into a subdirectory.
+          ZEPHYR_BASE: ${{ github.workspace }}/zephyr
+          PYTHON_EXECUTABLE: python3
+          SDL_VIDEODRIVER: offscreen
+        run: scripts/smoke_native_sim.sh

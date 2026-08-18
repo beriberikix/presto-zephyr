@@ -229,8 +229,19 @@ static int psram_init(void)
 		return 0; /* non-fatal: leave the region unused */
 	}
 
-	if (psram_size != PSRAM_DT_SIZE) {
+	/*
+	 * Only complain when the devicetree claims more than the chip has, which
+	 * is the direction that ends in a fault. Declaring less is a legitimate
+	 * way to hand part of the chip to something other than the linker region
+	 * -- a RAM disk, a framebuffer, a DMA arena -- and warning about it
+	 * trains people to ignore a message that is elsewhere a real problem.
+	 */
+	if (psram_size < PSRAM_DT_SIZE) {
 		LOG_WRN("PSRAM detected %zu MiB but devicetree declares %u MiB",
+			psram_size >> 20, (unsigned int)(PSRAM_DT_SIZE >> 20));
+	} else if (psram_size > PSRAM_DT_SIZE) {
+		LOG_INF("PSRAM %zu MiB detected; devicetree region covers %u MiB, "
+			"the rest is reserved for other users",
 			psram_size >> 20, (unsigned int)(PSRAM_DT_SIZE >> 20));
 	}
 

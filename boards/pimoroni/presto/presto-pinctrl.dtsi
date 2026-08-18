@@ -82,4 +82,37 @@
 			pinmux = <PIO2_P33>;
 		};
 	};
+
+	/*
+	 * microSD in SPI mode on the hardware SPI0 controller: SCLK=GP34,
+	 * MOSI=GP35 (the card's CMD), MISO=GP36 (the card's DAT0).
+	 *
+	 * The slot is wired for 4-bit SDIO, and GP34-GP39 land on SPI0 by pure
+	 * luck of the RP2350B pin table -- SPI blocks alternate every eight
+	 * pins, and GP32-39 is a SPI0 block whose {SCK, TX, RX} fall exactly on
+	 * the three lines SPI mode needs. Nothing else on the board wants SPI0:
+	 * the display is PIO1, Wi-Fi PIO0 and the LEDs PIO2.
+	 *
+	 * The card's chip select is DAT3 (GP39), which is deliberately NOT
+	 * pinmuxed here. It stays a plain GPIO so the SDHC driver can hold it
+	 * low across a whole multi-block command sequence; the PL022's own chip
+	 * select deasserts between transfers, which the SD SPI protocol reads as
+	 * the end of the command.
+	 *
+	 * bias-pull-up on MISO because DAT0 floats whenever no card is seated
+	 * (and during the card's own power-up), and a floating input reads as a
+	 * stream of 0x00 -- which the SD stack cannot tell from a card holding
+	 * the line low, so it waits out the full init timeout instead of failing
+	 * fast. The pull-up is what makes an empty slot report "no card".
+	 */
+	spi0_default: spi0_default {
+		group1 {
+			pinmux = <SPI0_SCK_P34>, <SPI0_TX_P35>;
+		};
+		group2 {
+			pinmux = <SPI0_RX_P36>;
+			input-enable;
+			bias-pull-up;
+		};
+	};
 };

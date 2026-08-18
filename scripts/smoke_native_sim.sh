@@ -24,9 +24,18 @@ if [[ ! -d "${ZEPHYR_BASE}" ]]; then
   exit 1
 fi
 
+# Accept a bare command name as well as a path. The default is a venv path, but
+# a CI runner has python3 on PATH and no venv, and `-x python3` is false for a
+# name -- which failed with "Python executable not found: python3" while python3
+# was plainly right there.
+if command -v "${PYTHON_EXECUTABLE}" >/dev/null 2>&1; then
+  PYTHON_EXECUTABLE="$(command -v "${PYTHON_EXECUTABLE}")"
+fi
+
 if [[ ! -x "${PYTHON_EXECUTABLE}" ]]; then
   echo "ERROR: Python executable not found: ${PYTHON_EXECUTABLE}" >&2
-  echo "Create a venv at ${ROOT_DIR}/.venv or set PYTHON_EXECUTABLE." >&2
+  echo "Create a venv at ${ROOT_DIR}/.venv, set PYTHON_EXECUTABLE to a path," >&2
+  echo "or name an interpreter on PATH (e.g. PYTHON_EXECUTABLE=python3)." >&2
   exit 1
 fi
 
@@ -37,6 +46,7 @@ apps=(
   test_wifi
   test_display
   test_lvgl
+  test_sdcard
   wifi_display
   kitchen_sink
 )
