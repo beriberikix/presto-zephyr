@@ -29,7 +29,7 @@
  *   LEDs (7x SK6812 NeoPixels, on PIO2 here; PIO0 SM3 in Pimoroni's firmware):
  *     GP33 LED_DATA
  *
- *   microSD (4-bit SDIO capable; SPI mode pin layout):
+ *   microSD (4-bit SDIO capable; driven here in SPI mode on SPI0):
  *     GP34 SCLK, GP35 CMD/MOSI, GP36 DAT0/MISO,
  *     GP37 DAT1, GP38 DAT2, GP39 DAT3/CS
  *
@@ -148,6 +148,55 @@
 			int-gpios = <&gpio0_hi 0 GPIO_ACTIVE_LOW>;
 			reset-gpios = <&gpio0_hi 10 GPIO_ACTIVE_LOW>;
 			status = "okay";
+		};
+	};
+};
+
+/*
+ * microSD slot, driven in SPI mode on the hardware SPI0 controller.
+ *
+ * Disabled by default, like the display and Wi-Fi: an app opts in with
+ * `&spi0 { status = "okay"; };` in its overlay plus CONFIG_DISK_DRIVER_SDMMC.
+ * See apps/test_sdcard.
+ *
+ * SPI mode rather than the 4-bit SDIO the slot is wired for. The RP2350 has no
+ * SD host controller, so SDIO would mean a PIO implementation, and all three
+ * PIO blocks are already spoken for (PIO0 Wi-Fi, PIO1 display, PIO2 LEDs).
+ * SPI mode costs roughly a quarter of the bandwidth and needs no PIO at all.
+ *
+ * 24 MHz is the SD specification's ceiling for SPI mode on a standard card.
+ * The stack negotiates up to it from 400 kHz, so a card that will not run this
+ * fast fails during initialisation rather than corrupting data later; drop it
+ * if a particular card proves marginal.
+ */
+&spi0 {
+	status = "disabled";
+	pinctrl-0 = <&spi0_default>;
+	pinctrl-names = "default";
+
+	/* GP39 = DAT3/CS = gpio0_hi index 7. A GPIO, not the PL022's own chip
+	 * select -- see the pinctrl comment for why.
+	 */
+	cs-gpios = <&gpio0_hi 7 GPIO_ACTIVE_LOW>;
+
+	/*
+	 * All three nodes are disabled, not just the bus, and an app enabling
+	 * the slot must say so at every level. Zephyr's status checks look at a
+	 * node alone and never at its ancestors, so a slot left "okay" under a
+	 * disabled bus still instantiates its driver -- which then references a
+	 * bus device that was never built, and the failure is an undefined
+	 * __device_dts_ord_N at link time rather than anything mentioning SPI.
+	 */
+	sdhc0: sdhc@0 {
+		compatible = "zephyr,sdhc-spi-slot";
+		reg = <0>;
+		status = "disabled";
+		spi-max-frequency = <24000000>;
+
+		sdmmc0: sdmmc {
+			compatible = "zephyr,sdmmc-disk";
+			disk-name = "SD";
+			status = "disabled";
 		};
 	};
 };
