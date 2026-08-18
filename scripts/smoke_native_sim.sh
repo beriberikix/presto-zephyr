@@ -37,6 +37,7 @@ apps=(
   test_wifi
   test_display
   test_lvgl
+  test_sdcard
   wifi_display
   kitchen_sink
 )
